@@ -36,6 +36,15 @@ const SCANNER_ORGS = [
   'stretchoid', 'binaryedge', 'shodan', 'onyphe'
 ];
 
+// SASE/SSE proxies — these are NOT scanners or competitors.
+// Enterprise users behind these proxies are CUSTOMERS, not threats.
+// A request from Zscaler is an employee at a Fortune 500, not Zscaler itself.
+const SASE_PROXY_ORGS = [
+  'zscaler', 'netskope', 'palo alto', 'prisma', 'cloudflare warp',
+  'cisco umbrella', 'forcepoint', 'iboss', 'menlo security',
+  'skyhigh security', 'cato networks', 'versa networks'
+];
+
 // ================================================================
 // IN-MEMORY IOC CACHE
 // ================================================================
@@ -97,6 +106,10 @@ async function refreshIOCs(apiKey) {
 function detectScanner(ua, asnOrg) {
   const uaLower = ua.toLowerCase();
   const orgLower = asnOrg.toLowerCase();
+
+  // NEVER flag SASE/SSE proxy users as scanners — they're enterprise customers
+  if (SASE_PROXY_ORGS.some(p => orgLower.includes(p))) return false;
+
   return SCANNER_UA.some(p => uaLower.includes(p)) ||
          SCANNER_ORGS.some(p => orgLower.includes(p));
 }

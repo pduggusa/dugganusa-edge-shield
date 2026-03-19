@@ -1,0 +1,16 @@
+{
+  "name": "dugganusa-edge-shield",
+  "version": "1.0.0",
+  "description": "Edge security Worker powered by DugganUSA threat intelligence. 1M+ IOCs at the Cloudflare edge.",
+  "main": "src/worker.js",
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev"
+  },
+  "keywords": ["cloudflare", "worker", "security", "threat-intelligence", "stix", "ioc", "waf", "edge"],
+  "author": "DugganUSA LLC <butterbot@dugganusa.com>",
+  "license": "MIT",
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}

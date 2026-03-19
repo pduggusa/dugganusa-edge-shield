@@ -1,0 +1,11 @@
+name = "dugganusa-edge-shield"
+main = "src/worker.js"
+compatibility_date = "2026-03-19"
+
+# Your DugganUSA API key — set as a secret:
+#   npx wrangler secret put DUGGANUSA_API_KEY
+#
+# Get your key: https://analytics.dugganusa.com/stix/register
+
+[observability]
+enabled = true

@@ -1,6 +1,6 @@
 {
   "name": "dugganusa-edge-shield",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "Edge security Worker powered by DugganUSA threat intelligence. 1M+ IOCs at the Cloudflare edge.",
   "main": "src/worker.js",
   "scripts": {

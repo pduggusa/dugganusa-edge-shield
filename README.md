@@ -1,64 +1,78 @@
+<div align="center">
+
 # DugganUSA Edge Shield
 
-**1M+ IOCs at the Cloudflare edge. Deploy in 30 seconds.**
+### Enterprise threat intelligence at the Cloudflare edge. Free. Open source.
 
-Edge Shield is a Cloudflare Worker that protects your site using DugganUSA's threat intelligence feed. It blocks known malicious IPs, detects scanners, and enriches every request with city-level geo analytics — all at the edge, before traffic hits your origin.
+[![MIT License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Cloudflare Workers](https://img.shields.io/badge/Cloudflare-Workers-F38020?logo=cloudflare&logoColor=white)](https://workers.cloudflare.com/)
+[![IOCs](https://img.shields.io/badge/IOCs-1%2C043%2C509-10b981)](https://analytics.dugganusa.com/api/v1/stix-feed)
+[![Consumers](https://img.shields.io/badge/Feed%20Consumers-275%2B-818cf8)](https://analytics.dugganusa.com/stix/pricing)
+[![STIX 2.1](https://img.shields.io/badge/STIX-2.1-4f46e5)](https://analytics.dugganusa.com/api/v1/stix-feed)
+
+**1,043,509 IOCs. 275+ consumers in 46 countries. Deploy in 30 seconds.**
+
+Microsoft, AT&T, and Starlink already pull our feed. Now you can too — at the edge.
+
+[Get Your Free API Key](https://analytics.dugganusa.com/stix/register) &nbsp;&bull;&nbsp; [STIX Feed](https://analytics.dugganusa.com/api/v1/stix-feed) &nbsp;&bull;&nbsp; [Blog](https://www.dugganusa.com) &nbsp;&bull;&nbsp; [AIPM](https://aipmsec.com)
+
+---
+
+</div>
 
 ## What It Does
 
-| Layer | Action | Latency |
-|-------|--------|---------|
-| **Scanner Detection** | Returns 418 to known scanners (LeakIX, Censys, Shodan, Nuclei, etc.) | 0ms |
-| **IOC Blocking** | Blocks IPs from 1M+ indicator feed | 0ms (cached) |
-| **Geo Enrichment** | Adds city, region, ASN org, lat/lon headers to every request | 0ms |
-
-Your origin server receives enriched headers:
-
 ```
-X-CF-City: Minneapolis
-X-CF-Region: Minnesota
-X-CF-ASN-Org: Comcast Cable Communications
-X-DugganUSA-Shield: active
-X-DugganUSA-IOCs: 47832
+Visitor → Cloudflare Edge → Edge Shield → Your Origin
+                              │
+                              ├── Scanner?  → 418 "We see you. We indexed you."
+                              ├── Known IOC? → 403 Blocked
+                              └── Clean?     → ✅ Pass with geo headers
 ```
 
-Malicious IPs and scanners never reach your server.
+| Layer | What Happens | Latency Added |
+|:-----:|:-------------|:-------------:|
+| **Scanner Detection** | Returns 418 to Shodan, Censys, LeakIX, Nuclei, ZMap | **0ms** |
+| **IOC Blocking** | Blocks IPs from 1M+ threat indicator feed | **0ms** (cached) |
+| **Geo Enrichment** | Adds city, region, ASN, lat/lon headers to every request | **0ms** |
+
+Zero external lookups. Zero latency added. The intelligence lives in Worker memory.
+
+---
 
 ## Quick Start
 
 ```bash
-# 1. Clone
 git clone https://github.com/pduggusa/dugganusa-edge-shield.git
 cd dugganusa-edge-shield
-
-# 2. Get your API key (free tier: 500 queries/day)
-#    https://analytics.dugganusa.com/stix/register
-
-# 3. Set your API key
-npx wrangler secret put DUGGANUSA_API_KEY
-
-# 4. Deploy
+npx wrangler secret put DUGGANUSA_API_KEY    # Free: analytics.dugganusa.com/stix/register
 npx wrangler deploy
 ```
 
-Then add a route in your Cloudflare dashboard:
-- **Zone** → Workers Routes → Add Route
-- **Pattern**: `*yourdomain.com/*`
-- **Worker**: `dugganusa-edge-shield`
+Add a route in Cloudflare: `*yourdomain.com/*` → `dugganusa-edge-shield`
 
-That's it. Your site is now protected by 1M+ IOCs.
+**That's it.** Your site is protected by 1M+ IOCs.
 
-## How It Works
+---
 
+## What Your Origin Server Receives
+
+Every request gets enriched headers — for free:
+
+```http
+X-CF-City: Minneapolis
+X-CF-Region: Minnesota
+X-CF-Country: US
+X-CF-ASN-Org: Comcast Cable Communications
+X-CF-Latitude: 44.9778
+X-CF-Longitude: -93.2650
+X-DugganUSA-Shield: active
+X-DugganUSA-IOCs: 1043509
 ```
-Visitor → Cloudflare Edge → Edge Shield Worker → Your Origin
-                              │
-                              ├─ Scanner? → 418 "We see you."
-                              ├─ Known IOC? → 403 Blocked
-                              └─ Clean? → Pass through with geo headers
-```
 
-The Worker caches IOCs from the DugganUSA STIX feed in memory and refreshes every hour. Scanner detection is instant — no API call needed. Geo data comes from Cloudflare's own network, zero external lookups.
+Build geo dashboards, detect anomalies, log city-level analytics — all from headers your origin already receives.
+
+---
 
 ## What Scanners See
 
@@ -74,83 +88,148 @@ The Worker caches IOCs from the DugganUSA STIX feed in memory and refreshes ever
 }
 ```
 
-HTTP 418 I'm a Teapot. Because they deserve it.
+**HTTP 418 I'm a Teapot.** Because they deserve it.
+
+---
+
+## The Intelligence Behind It
+
+Edge Shield is powered by the same STIX 2.1 feed that Fortune 500 security teams consume:
+
+<div align="center">
+
+| Metric | Value |
+|:------:|:-----:|
+| **IOCs Indexed** | 1,043,509 |
+| **Feed Consumers** | 275+ |
+| **Countries** | 46 |
+| **Autonomous Decisions** | 5,764,156 |
+| **Threats Blocked** | 2,038,293 |
+| **Adversary Profiles** | 361 |
+| **Blog Posts** | 1,655 |
+
+</div>
+
+We don't just aggregate — we hunt. 18 documented supply chain attacks (Pattern 38). NrodeCodeRAT discovered 43 days before Zscaler. IRGC target analysis on 18 US tech companies. FBI wiretap breach analysis published same-day.
+
+---
+
+## Fix Your AI Visibility — AIPM
+
+<div align="center">
+
+**Is your brand invisible to ChatGPT?** Most are.
+
+</div>
+
+We built [**AIPM (AI Presence Management)**](https://aipmsec.com) — the tool that audits how AI models perceive your brand. Five models. Seven signals. Free.
+
+We used it on ourselves. **0% → 23% ChatGPT visibility in 3 days.** Here's what we did:
+
+1. **robots.txt** — invited AI crawlers explicitly (GPTBot, ClaudeBot, PerplexityBot)
+2. **LD-JSON** — added Organization, Product, FAQ schema across all properties
+3. **llms.txt** — deployed an AI-readable site summary (most companies don't have one)
+4. **NLWeb** — built a Cloudflare Worker that serves `/.well-known/nlweb` for AI content retrieval
+5. **Managed questions** — told the AI models what questions to answer about us
+6. **Content velocity** — 15 blog posts in 4 days naming specific companies and CVEs
+
+AIPM scores all of this. Run your audit. See your gaps. Fix them.
+
+We went from "motorcycle oil company" (what GPT-4o thought we were) to accurate threat intelligence descriptions across 4 of 5 models. The structured data + content velocity + GEO optimization stack works. AIPM measures it.
+
+<div align="center">
+
+[**Audit Your Brand Free →**](https://aipmsec.com)
+
+*755+ audits completed. First tool to score llms.txt and NLWeb. Wix launched a competing feature — we took that as validation.*
+
+</div>
+
+---
 
 ## Pricing
 
-Edge Shield requires a DugganUSA API key. The Worker is free. The intelligence behind it is tiered:
+The Worker is **free and open source forever.** The intelligence is tiered:
 
-| Tier | Price | IOC Refresh | Support |
-|------|-------|-------------|---------|
-| Free | $0/mo | Every 24h, 48h delayed data | Community |
-| Starter | $45/mo | Every 1h, real-time | Email |
-| Professional | $495/mo | Every 15m, real-time + cross-index | Priority |
-| Enterprise | $2,495/mo | Every 5m, real-time + full suite | Dedicated |
+| Tier | Price | IOC Refresh | Best For |
+|:----:|:-----:|:-----------:|:---------|
+| **Free** | $0/mo | 24h, 48h delayed | Personal sites, blogs, side projects |
+| **Starter** | $45/mo | 1h, real-time | Small business, startups |
+| **Professional** | $495/mo | 15m, real-time + cross-index | SOC teams, MSPs |
+| **Enterprise** | $2,495/mo | 5m, full Medusa Suite | Fortune 500, government |
 
-[Get your API key →](https://analytics.dugganusa.com/stix/register)
+<div align="center">
 
-## Configuration
+[**Get Your Free API Key →**](https://analytics.dugganusa.com/stix/register)
 
-### wrangler.toml
+</div>
 
-```toml
-name = "dugganusa-edge-shield"
-main = "src/worker.js"
-compatibility_date = "2026-03-19"
-```
-
-### Secrets
-
-```bash
-npx wrangler secret put DUGGANUSA_API_KEY
-# Paste your API key when prompted
-```
-
-### Environment Variables
-
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `DUGGANUSA_API_KEY` | Yes | Your API key from registration |
+---
 
 ## Reading Geo Headers
 
-In your origin server (Node.js example):
-
 ```javascript
+// Node.js / Express
 app.use((req, res, next) => {
   const city = req.headers['x-cf-city'];
   const region = req.headers['x-cf-region'];
   const org = req.headers['x-cf-asn-org'];
-  const shielded = req.headers['x-dugganusa-shield'] === 'active';
-
-  console.log(`${city}, ${region} | ${org} | Shield: ${shielded}`);
+  console.log(`${city}, ${region} — ${org}`);
   next();
 });
 ```
 
-## What We See
+```python
+# Python / Flask
+@app.before_request
+def log_geo():
+    city = request.headers.get('X-CF-City', 'Unknown')
+    region = request.headers.get('X-CF-Region', 'Unknown')
+    print(f"{city}, {region}")
+```
+
+---
+
+## Privacy
 
 When you use Edge Shield, we see:
 - API key usage (query count per day)
-- Which IOC lists you pull (IPs, domains)
+- Which IOC lists you pull
 
-We do NOT see:
+We do **NOT** see:
 - Your visitors
 - Your traffic
 - Your origin server
 - Anything about your site
 
-The Worker runs on YOUR Cloudflare account. We provide the intelligence. You control the deployment.
+The Worker runs on **YOUR** Cloudflare account. We provide the intelligence. You control everything else.
 
-## Built By
+---
 
-**DugganUSA LLC** — Minneapolis, MN
-Cybersecurity threat intelligence. 1M+ IOCs. 42 indexes. Built with Claude.
+## Also From DugganUSA
 
-- [STIX Feed](https://analytics.dugganusa.com/stix/pricing)
-- [AI Presence Audit](https://aipmsec.com)
-- [Blog](https://www.dugganusa.com)
+| Product | What It Does |
+|:--------|:-------------|
+| [**AIPM**](https://aipmsec.com) | Audit how AI models perceive your brand — 0% to 23% ChatGPT visibility in 3 days |
+| [**STIX Feed**](https://analytics.dugganusa.com/stix/pricing) | 1M+ IOCs, Splunk ES + OPNsense compatible, TAXII 2.1 |
+| [**Epstein Files**](https://epstein.dugganusa.com) | 400,750 DOJ documents, full-text searchable, free |
+| [**Butterbot Tank**](https://github.com/pduggusa/butterbot-tank) | Autonomous site survey robot — WiFi heatmaps, NDAA detection, AR HUD |
+| [**Blog**](https://www.dugganusa.com) | 1,655 threat intelligence posts and counting |
 
-## License
+---
 
-MIT
+<div align="center">
+
+**DugganUSA LLC** — Minneapolis, MN &nbsp;&bull;&nbsp; v2.0.0
+
+Cybersecurity threat intelligence. Built with Claude.
+
+D-U-N-S: 14-363-3562 &nbsp;&bull;&nbsp; SAM.gov UEI: TP9FY7262K87
+
+CMMC Level 2: 78/110 NIST SP 800-171 controls on $600/month
+
+*"The boring architecture is the safe architecture."*
+
+[dugganusa.com](https://www.dugganusa.com) &nbsp;&bull;&nbsp; [aipmsec.com](https://aipmsec.com) &nbsp;&bull;&nbsp; [Bluesky](https://bsky.app/profile/hakksaww.bsky.social)
+
+</div>

@@ -6,13 +6,25 @@
 
 [![MIT License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Cloudflare Workers](https://img.shields.io/badge/Cloudflare-Workers-F38020?logo=cloudflare&logoColor=white)](https://workers.cloudflare.com/)
-[![IOCs](https://img.shields.io/badge/IOCs-1%2C043%2C509-10b981)](https://analytics.dugganusa.com/api/v1/stix-feed)
+[![IOCs](https://img.shields.io/badge/IOCs-1%2C046%2C000%2B-10b981)](https://analytics.dugganusa.com/api/v1/stix-feed)
 [![Consumers](https://img.shields.io/badge/Feed%20Consumers-275%2B-818cf8)](https://analytics.dugganusa.com/stix/pricing)
 [![STIX 2.1](https://img.shields.io/badge/STIX-2.1-4f46e5)](https://analytics.dugganusa.com/api/v1/stix-feed)
 
-**1,043,509 IOCs. 275+ consumers in 46 countries. Deploy in 30 seconds.**
+**Compliance & Posture:**
 
-Microsoft, AT&T, and Starlink already pull our feed. Now you can too — at the edge.
+[![CMMC L2](https://img.shields.io/badge/CMMC%20L2-71%25-a5b4fc)](https://github.com/pduggusa/enterprise-extraction-platform/tree/main/compliance)
+[![SOC 2](https://img.shields.io/badge/SOC%202%20Type%202-88%25-a5b4fc)](https://github.com/pduggusa/enterprise-extraction-platform/tree/main/compliance)
+[![GovRAMP](https://img.shields.io/badge/GovRAMP-Foundation%20Ready-a5b4fc)](https://github.com/pduggusa/enterprise-extraction-platform/tree/main/compliance/govramp)
+[![CISA AIS](https://img.shields.io/badge/CISA%20AIS-Data%20Aggregator-4ade80)](https://www.cisa.gov/ais)
+[![SSL Labs](https://img.shields.io/badge/SSL%20Labs-A%2B-4ade80)](https://www.ssllabs.com/ssltest/analyze.html?d=analytics.dugganusa.com)
+[![Headers](https://img.shields.io/badge/Security%20Headers-7%2F7-4ade80)](https://securityheaders.com/?q=analytics.dugganusa.com)
+[![DNSSEC](https://img.shields.io/badge/DNSSEC-Enabled-4ade80)](https://dnssec-analyzer.verisignlabs.com/dugganusa.com)
+[![Cosign](https://img.shields.io/badge/Container%20Images-Cosign%20Signed-4ade80)](https://github.com/sigstore/cosign)
+[![SBOM](https://img.shields.io/badge/SBOM-CycloneDX-4ade80)](https://github.com/pduggusa/enterprise-extraction-platform/tree/main/compliance/evidence/sbom)
+
+**1,046,000+ IOCs. 275+ consumers in 46 countries. Deploy in 30 seconds.**
+
+Microsoft, AT&T, Meta, and Zscaler already pull our feed. Now you can too — at the edge.
 
 [Get Your Free API Key](https://analytics.dugganusa.com/stix/register) &nbsp;&bull;&nbsp; [STIX Feed](https://analytics.dugganusa.com/api/v1/stix-feed) &nbsp;&bull;&nbsp; [Blog](https://www.dugganusa.com) &nbsp;&bull;&nbsp; [AIPM](https://aipmsec.com)
 

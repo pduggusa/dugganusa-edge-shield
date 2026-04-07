@@ -1,11 +1,58 @@
 name = "dugganusa-edge-shield"
 main = "src/worker.js"
 compatibility_date = "2026-03-19"
+account_id = "6a88c1dc2bef510ffb0c0393ce5c6248"
 
 # Your DugganUSA API key — set as a secret:
 #   npx wrangler secret put DUGGANUSA_API_KEY
 #
 # Get your key: https://analytics.dugganusa.com/stix/register
+
+# Honeypot canary routes — intercept scanner probes on all properties
+routes = [
+  # Config/credential probes
+  { pattern = "analytics.dugganusa.com/.env*", zone_name = "dugganusa.com" },
+  { pattern = "analytics.dugganusa.com/.git/*", zone_name = "dugganusa.com" },
+  { pattern = "analytics.dugganusa.com/.aws/*", zone_name = "dugganusa.com" },
+  { pattern = "security.dugganusa.com/.env*", zone_name = "dugganusa.com" },
+  { pattern = "security.dugganusa.com/.git/*", zone_name = "dugganusa.com" },
+  { pattern = "security.dugganusa.com/.aws/*", zone_name = "dugganusa.com" },
+  # WordPress probes
+  { pattern = "analytics.dugganusa.com/wp-admin/*", zone_name = "dugganusa.com" },
+  { pattern = "analytics.dugganusa.com/wp-login.php", zone_name = "dugganusa.com" },
+  { pattern = "analytics.dugganusa.com/xmlrpc.php", zone_name = "dugganusa.com" },
+  { pattern = "security.dugganusa.com/wp-admin/*", zone_name = "dugganusa.com" },
+  { pattern = "security.dugganusa.com/wp-login.php", zone_name = "dugganusa.com" },
+  { pattern = "security.dugganusa.com/xmlrpc.php", zone_name = "dugganusa.com" },
+  # Database/backup probes
+  { pattern = "analytics.dugganusa.com/backup.sql*", zone_name = "dugganusa.com" },
+  { pattern = "analytics.dugganusa.com/dump.sql", zone_name = "dugganusa.com" },
+  { pattern = "analytics.dugganusa.com/db.sqlite", zone_name = "dugganusa.com" },
+  { pattern = "security.dugganusa.com/backup.sql*", zone_name = "dugganusa.com" },
+  # Admin/debug probes
+  { pattern = "analytics.dugganusa.com/phpmyadmin/*", zone_name = "dugganusa.com" },
+  { pattern = "analytics.dugganusa.com/adminer.php", zone_name = "dugganusa.com" },
+  { pattern = "analytics.dugganusa.com/administrator/*", zone_name = "dugganusa.com" },
+  { pattern = "analytics.dugganusa.com/_debug/*", zone_name = "dugganusa.com" },
+  { pattern = "security.dugganusa.com/phpmyadmin/*", zone_name = "dugganusa.com" },
+  # Webshell probes
+  { pattern = "analytics.dugganusa.com/shell.php", zone_name = "dugganusa.com" },
+  { pattern = "analytics.dugganusa.com/cmd.php", zone_name = "dugganusa.com" },
+  { pattern = "analytics.dugganusa.com/c99.php", zone_name = "dugganusa.com" },
+  { pattern = "analytics.dugganusa.com/r57.php", zone_name = "dugganusa.com" },
+  # Framework recon
+  { pattern = "analytics.dugganusa.com/actuator*", zone_name = "dugganusa.com" },
+  { pattern = "analytics.dugganusa.com/server-status", zone_name = "dugganusa.com" },
+  { pattern = "security.dugganusa.com/actuator*", zone_name = "dugganusa.com" },
+  # API fishing
+  { pattern = "analytics.dugganusa.com/graphql", zone_name = "dugganusa.com" },
+  { pattern = "security.dugganusa.com/graphql", zone_name = "dugganusa.com" },
+  # Marketing hosts — full coverage for IOC blocking + LD-JSON injection (LAYER 5)
+  { pattern = "www.dugganusa.com/*", zone_name = "dugganusa.com" },
+  { pattern = "dugganusa.com/*", zone_name = "dugganusa.com" },
+  { pattern = "aipmsec.com/*", zone_name = "aipmsec.com" },
+  { pattern = "www.aipmsec.com/*", zone_name = "aipmsec.com" },
+]
 
 [observability]
 enabled = true

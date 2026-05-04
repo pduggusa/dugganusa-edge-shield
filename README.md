@@ -245,3 +245,31 @@ CMMC Level 2: 78/110 NIST SP 800-171 controls on $600/month
 [dugganusa.com](https://www.dugganusa.com) &nbsp;&bull;&nbsp; [aipmsec.com](https://aipmsec.com) &nbsp;&bull;&nbsp; [Bluesky](https://bsky.app/profile/hakksaww.bsky.social)
 
 </div>
+
+---
+
+<!-- DUGGANUSA-FAMILY-FOOTER-V1 -->
+## DugganUSA Defender Family
+
+Same threat corpus, surfaced wherever you live. Open source, MIT licensed, receipts on every repo.
+
+| Plugin | Surface |
+|---|---|
+| [dugganusa-scanner-core](https://github.com/pduggusa/dugganusa-scanner-core) | Core IOC scanning engine |
+| [dugganusa-vscode](https://github.com/pduggusa/dugganusa-vscode) | VS Code extension |
+| [dugganusa-splunk](https://github.com/pduggusa/dugganusa-splunk) | Splunk Technology Add-on |
+| [dugganusa-slack](https://github.com/pduggusa/dugganusa-slack) | Slack bot |
+| [dugganusa-raycast](https://github.com/pduggusa/dugganusa-raycast) | Raycast extension |
+| [dugganusa-sentinel](https://github.com/pduggusa/dugganusa-sentinel) | Microsoft Sentinel TAXII connector |
+| [dugganusa-obsidian](https://github.com/pduggusa/dugganusa-obsidian) | Obsidian plugin |
+| [dugganusa-nvim](https://github.com/pduggusa/dugganusa-nvim) | Neovim plugin |
+| [dugganusa-elastic](https://github.com/pduggusa/dugganusa-elastic) | Elastic / OpenSearch integration |
+| **dugganusa-edge-shield** _(this repo)_ | Cloudflare Worker |
+| [dugganusa-cli](https://github.com/pduggusa/dugganusa-cli) | CLI scanner |
+| [dugganusa-chrome](https://github.com/pduggusa/dugganusa-chrome) | Chrome extension |
+| [dugganusa-action](https://github.com/pduggusa/dugganusa-action) | GitHub Action |
+| [dredd-mcp](https://github.com/pduggusa/dredd-mcp) | Pre-flight MCP security (this repo) |
+
+Backed by the live DugganUSA threat intel platform: [analytics.dugganusa.com](https://analytics.dugganusa.com).
+
+_Jeevesus saves. Dredd judges._

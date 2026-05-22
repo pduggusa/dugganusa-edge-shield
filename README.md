@@ -45,10 +45,13 @@ Visitor → Cloudflare Edge → Edge Shield → Your Origin
 | Layer | What Happens | Latency Added |
 |:-----:|:-------------|:-------------:|
 | **Scanner Detection** | Returns 418 to Shodan, Censys, LeakIX, Nuclei, ZMap | **0ms** |
+| **CF-Bypass Recon Detection** | Returns 418 to CF-Hero, cloudflair, Go-default-UA + SecurityTrails / ZoomEye / Spyse / Criminal-IP origin-IP-recon | **0ms** |
 | **IOC Blocking** | Blocks IPs from 1M+ threat indicator feed | **0ms** (cached) |
 | **Geo Enrichment** | Adds city, region, ASN, lat/lon headers to every request | **0ms** |
 
 Zero external lookups. Zero latency added. The intelligence lives in Worker memory.
+
+> **Companion: origin-side Host Shield** — Edge Shield filters at the Cloudflare tier. For full protection against [CF-Hero](https://github.com/musana/CF-Hero)-class bypass attacks, also deploy [the origin-side Host Shield middleware](examples/host-shield-middleware/) on your app server. It rejects any request whose Host header isn't on your allowlist — defeating direct-to-origin connections that bypass CF entirely.
 
 ---
 

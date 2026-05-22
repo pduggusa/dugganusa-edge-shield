@@ -46,6 +46,37 @@ const SASE_PROXY_ORGS = [
 ];
 
 // ================================================================
+// CF-HERO CLASS — Origin-IP discovery / Cloudflare-bypass tooling
+// ================================================================
+//
+// CF-Hero (https://github.com/musana/CF-Hero) is a Go-written recon tool
+// that discovers origin IPs behind Cloudflare via SecurityTrails, ZoomEye,
+// Censys, Shodan, DNS history, and HTTP-title-match validation. Defaults
+// to a Go HTTP client signature unless explicitly configured.
+//
+// The User-Agent strings below are the defaults shipped by CF-Hero and
+// other Cloudflare-bypass recon tools (cloak, cdn-finder, cloudflair, etc).
+// Detection here is layer 1.5 — between Scanner-UA (layer 1) and IOC
+// (layer 2). Catches the reconnaissance phase *before* it identifies the
+// origin, so the attacker never gets the IP to use later.
+
+const CF_BYPASS_UA = [
+  'cf-hero', 'cloudflair', 'cdn-finder', 'cloak',
+  'go-http-client/1.1', // CF-Hero default + most Go-tool defaults
+  'go-http-client/2.0',
+  'python-requests/',   // Common cloudflair / cloak variants
+];
+
+// ASNs / orgs of recon infrastructure used to enumerate origin IPs.
+// Hits from these orgs on application routes are almost always recon.
+// Not blocked outright (some are legitimate research) — but elevated to
+// scanner-tier handling (418 + log).
+const ORIGIN_RECON_ORGS = [
+  'securitytrails', 'zoomeye', 'binaryedge', 'spyse',
+  'fofa', 'criminal-ip', 'fullhunt', 'leakix',
+];
+
+// ================================================================
 // IN-MEMORY IOC CACHE
 // ================================================================
 
@@ -112,6 +143,32 @@ function detectScanner(ua, asnOrg) {
 
   return SCANNER_UA.some(p => uaLower.includes(p)) ||
          SCANNER_ORGS.some(p => orgLower.includes(p));
+}
+
+/**
+ * detectCfBypassRecon — catches CF-Hero class origin-IP-discovery tools.
+ *
+ * Returns true when the request looks like reconnaissance trying to bypass
+ * Cloudflare. Distinct from generic scanner detection: these tools target
+ * the CF-protection layer itself, not the application behind it.
+ *
+ * Triggered by either:
+ *   - User-Agent matching a known CF-bypass tool (cf-hero, cloudflair, etc)
+ *     or a default Go HTTP client signature (CF-Hero ships with this)
+ *   - ASN/org matching origin-IP-recon infrastructure (SecurityTrails,
+ *     ZoomEye, BinaryEdge, etc.)
+ *
+ * SASE-aware: a Go-client UA arriving through Zscaler is an enterprise dev
+ * environment, not CF-Hero. Don't flag.
+ */
+function detectCfBypassRecon(ua, asnOrg) {
+  const uaLower = ua.toLowerCase();
+  const orgLower = asnOrg.toLowerCase();
+
+  if (SASE_PROXY_ORGS.some(p => orgLower.includes(p))) return false;
+
+  return CF_BYPASS_UA.some(p => uaLower.includes(p)) ||
+         ORIGIN_RECON_ORGS.some(p => orgLower.includes(p));
 }
 
 function scannerResponse(request, cf) {
@@ -363,6 +420,19 @@ export default {
     // LAYER 1: Scanner detection — return 418 I'm a Teapot
     // ============================================================
     if (detectScanner(ua, asnOrg)) {
+      return scannerResponse(request, cf);
+    }
+
+    // ============================================================
+    // LAYER 1.5: CF-Hero class — origin-IP-discovery / CF-bypass recon
+    // ============================================================
+    // CF-Hero (github.com/musana/CF-Hero) and similar tools enumerate the
+    // origin IP behind Cloudflare via SecurityTrails / ZoomEye / Shodan /
+    // Censys / DNS history, then validate via HTTP title comparison.
+    // We catch them at the reconnaissance phase by detecting the Go HTTP
+    // client default UA and recon-tool ASNs. Catching them HERE means
+    // they never get a valid response to triangulate the origin with.
+    if (detectCfBypassRecon(ua, asnOrg)) {
       return scannerResponse(request, cf);
     }
 

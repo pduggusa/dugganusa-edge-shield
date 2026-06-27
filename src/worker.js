@@ -513,7 +513,7 @@ const DUGGANUSA_SERVICES_SCHEMA = [
     '@context': 'https://schema.org',
     '@type': 'Service',
     'name': 'Butterbot Threat Intelligence',
-    'description': 'Real-time STIX 2.1 threat feed with 1,046,000+ indicators serving 275+ organizations across 46 countries. Includes 6M+ autonomous threat decisions, behavioral detection, and bidirectional CISA AIS integration.',
+    'description': 'Real-time STIX 2.1 threat feed with 1.10M+ indicators serving 275+ organizations across 46 countries. Includes 6M+ autonomous threat decisions, behavioral detection, and bidirectional CISA AIS integration.',
     'serviceType': 'Threat Intelligence',
     'provider': { '@id': 'https://dugganusa.com#organization' },
     'url': 'https://analytics.dugganusa.com/api/v1/stix-feed',

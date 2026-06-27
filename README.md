@@ -6,7 +6,7 @@
 
 [![MIT License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Cloudflare Workers](https://img.shields.io/badge/Cloudflare-Workers-F38020?logo=cloudflare&logoColor=white)](https://workers.cloudflare.com/)
-[![IOCs](https://img.shields.io/badge/IOCs-1%2C046%2C000%2B-10b981)](https://analytics.dugganusa.com/api/v1/stix-feed)
+[![IOCs](https://img.shields.io/badge/IOCs-1.10M%2B-10b981)](https://analytics.dugganusa.com/api/v1/stix-feed)
 [![Consumers](https://img.shields.io/badge/Feed%20Consumers-275%2B-818cf8)](https://analytics.dugganusa.com/stix/pricing)
 [![STIX 2.1](https://img.shields.io/badge/STIX-2.1-4f46e5)](https://analytics.dugganusa.com/api/v1/stix-feed)
 
@@ -22,7 +22,7 @@
 [![Cosign](https://img.shields.io/badge/Container%20Images-Cosign%20Signed-4ade80)](https://github.com/sigstore/cosign)
 [![SBOM](https://img.shields.io/badge/SBOM-CycloneDX-4ade80)](https://github.com/pduggusa/enterprise-extraction-platform/tree/main/compliance/evidence/sbom)
 
-**1,046,000+ IOCs. 275+ consumers in 46 countries. Deploy in 30 seconds.**
+**1.10M+ IOCs. 275+ consumers in 46 countries. Deploy in 30 seconds.**
 
 Microsoft, AT&T, Meta, and Zscaler already pull our feed. Now you can too — at the edge.
 
@@ -31,6 +31,20 @@ Microsoft, AT&T, Meta, and Zscaler already pull our feed. Now you can too — at
 ---
 
 </div>
+
+## What's New in 2.2.0
+
+Don't take our word for the feed — **verify it yourself.** The DugganUSA platform now serves **three live, no-auth, durable validation endpoints** (durable across our deploys; each response carries a `source` field of `live`, `durable`, or `baseline`):
+
+- **Novelty** — [`/api/v1/feed-uniqueness`](https://analytics.dugganusa.com/api/v1/feed-uniqueness): ~75%+ of our independently-sourced IOCs are **not** in ThreatFox. Most of what we publish, ThreatFox doesn't have.
+- **Timeliness** — [`/api/v1/kev-lead`](https://analytics.dugganusa.com/api/v1/kev-lead): we flag exploited CVEs roughly **31 days ahead of CISA KEV** on average.
+- **Accuracy** — [`/api/v1/spamhaus-validation`](https://analytics.dugganusa.com/api/v1/spamhaus-validation): Spamhaus independently corroborates our first-hand contributions.
+
+Feed depth also grew with **OSV malicious-package feeds (npm + PyPI)** and **daily GitHub Hunt detections**, alongside 15 external feed sources.
+
+> **Note:** the STIX feed is **API-key-enforced**. The Worker already requires a registered key (`wrangler secret put DUGGANUSA_API_KEY`); anonymous pulls return `401`. The free tier is a **free registered key** — [register here](https://analytics.dugganusa.com/stix/register).
+
+---
 
 ## What It Does
 
@@ -79,7 +93,7 @@ X-CF-ASN-Org: Comcast Cable Communications
 X-CF-Latitude: 44.9778
 X-CF-Longitude: -93.2650
 X-DugganUSA-Shield: active
-X-DugganUSA-IOCs: 1043509
+X-DugganUSA-IOCs: 1100000
 ```
 
 Build geo dashboards, detect anomalies, log city-level analytics — all from headers your origin already receives.
@@ -112,7 +126,7 @@ Edge Shield is powered by the same STIX 2.1 feed that Fortune 500 security teams
 
 | Metric | Value |
 |:------:|:-----:|
-| **IOCs Indexed** | 1,043,509 |
+| **IOCs Indexed** | 1.10M+ |
 | **Feed Consumers** | 275+ |
 | **Countries** | 46 |
 | **Autonomous Decisions** | 5,764,156 |
@@ -232,7 +246,7 @@ The Worker runs on **YOUR** Cloudflare account. We provide the intelligence. You
 
 <div align="center">
 
-**DugganUSA LLC** — Minneapolis, MN &nbsp;&bull;&nbsp; v2.0.0
+**DugganUSA LLC** — Minneapolis, MN &nbsp;&bull;&nbsp; v2.2.0
 
 Cybersecurity threat intelligence. Built with Claude.
 

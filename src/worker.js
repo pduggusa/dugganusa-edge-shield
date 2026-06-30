@@ -352,6 +352,48 @@ async function indexHoneypotHit(env, request, cf, canary) {
 }
 
 // ================================================================
+// FEED-EFFICACY REPORTING — close the liveness loop
+// ================================================================
+
+// When one of our published indicators blocks real traffic, report it back to
+// the feed-efficacy axis (/api/v1/feed-efficacy). This is the LIVENESS signal:
+// proof that an indicator we publish actually fires in the wild.
+//
+// PRIVACY CONTRACT (load-bearing): we send ONLY the indicator we already
+// published (the attacker's IP — threat infra, never a victim) plus the action,
+// direction and a count. No visitor/origin/asset data. The platform drops any
+// victim-side field and reports it back as `stripped`. Fire-and-forget; this
+// NEVER blocks or delays the 403 the visitor receives.
+async function reportFeedHit(env, indicator) {
+  const apiKey = env.DUGGANUSA_API_KEY;
+  if (!apiKey || !indicator) return;
+  try {
+    const resp = await fetch(`${DUGGANUSA_API}/feed/hit`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        consumer_kind: 'edge-shield',
+        hits: [{
+          indicator,
+          action: 'blocked',
+          direction: 'inbound',
+          count: 1,
+          ts: Date.now()
+        }]
+      })
+    });
+    if (!resp.ok) {
+      console.log(`Feed-hit report failed: ${resp.status} ${await resp.text().catch(() => '')}`);
+    }
+  } catch (e) {
+    console.log(`Feed-hit report error: ${e.message}`);
+  }
+}
+
+// ================================================================
 // MAIN HANDLER
 // ================================================================
 
@@ -379,6 +421,9 @@ export default {
     // LAYER 2: IOC blocking — known malicious IPs get 403
     // ============================================================
     if (ip && checkIOC(ip)) {
+      // Report the hit to the feed-efficacy (liveness) axis — non-blocking,
+      // privacy-preserving (indicator only, never the visitor/asset).
+      if (apiKey) ctx.waitUntil(reportFeedHit(env, ip));
       return blockedResponse(ip);
     }
 
@@ -513,7 +558,7 @@ const DUGGANUSA_SERVICES_SCHEMA = [
     '@context': 'https://schema.org',
     '@type': 'Service',
     'name': 'Butterbot Threat Intelligence',
-    'description': 'Real-time STIX 2.1 threat feed with 1.10M+ indicators serving 275+ organizations across 46 countries. Includes 6M+ autonomous threat decisions, behavioral detection, and bidirectional CISA AIS integration.',
+    'description': 'Real-time STIX 2.1 threat feed with 1.5M+ indicators serving 275+ organizations across 46 countries. Includes 8M+ autonomous threat decisions, behavioral detection, and bidirectional CISA AIS integration.',
     'serviceType': 'Threat Intelligence',
     'provider': { '@id': 'https://dugganusa.com#organization' },
     'url': 'https://analytics.dugganusa.com/api/v1/stix-feed',

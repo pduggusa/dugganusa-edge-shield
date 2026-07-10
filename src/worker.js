@@ -51,6 +51,8 @@ const SASE_PROXY_ORGS = [
 
 let iocCache = {
   ips: new Set(),
+  cidrs4: [], // [{ base, mask }] — IPv4 CIDR blocks (shitlist /24s were INERT before 2026-07-10)
+  cidrs6: [], // [{ base:BigInt, mask:BigInt }] — IPv6 CIDR blocks
   domains: new Set(),
   lastRefresh: 0,
   count: 0
@@ -72,13 +74,17 @@ async function refreshIOCs(apiKey) {
 
     if (ipsRes.ok) {
       const text = await ipsRes.text();
-      const ips = new Set();
+      const ips = new Set(); const cidrs4 = []; const cidrs6 = [];
       for (const line of text.split('\n')) {
         if (line.startsWith('#') || line.startsWith('ip,')) continue;
         const ip = line.split(',')[0]?.trim();
-        if (ip) ips.add(ip);
+        if (!ip) continue;
+        if (ip.includes('/')) {           // CIDR (shitlist /24, ASN prefixes) — parse, don't drop
+          const c = parseCidr(ip);
+          if (c) (c.v6 ? cidrs6 : cidrs4).push(c);
+        } else { ips.add(ip); }
       }
-      iocCache.ips = ips;
+      iocCache.ips = ips; iocCache.cidrs4 = cidrs4; iocCache.cidrs6 = cidrs6;
     }
 
     if (domainsRes.ok) {
@@ -93,7 +99,7 @@ async function refreshIOCs(apiKey) {
     }
 
     iocCache.lastRefresh = now;
-    iocCache.count = iocCache.ips.size + iocCache.domains.size;
+    iocCache.count = iocCache.ips.size + iocCache.cidrs4.length + iocCache.cidrs6.length + iocCache.domains.size;
   } catch (e) {
     // Silent fail — use stale cache
   }
@@ -141,8 +147,45 @@ function scannerResponse(request, cf) {
 // IOC BLOCKING
 // ================================================================
 
+// --- CIDR support (added 2026-07-10 — shitlist /24s + ASN prefixes were inert before) ---
+function ipv4ToInt(ip) {
+  const p = ip.split('.'); if (p.length !== 4) return null;
+  let n = 0; for (const o of p) { const x = +o; if (!(x >= 0 && x <= 255)) return null; n = (n << 8) + x; }
+  return n >>> 0;
+}
+function ipv6ToBigInt(ip) {
+  if (ip.indexOf(':') < 0) return null;
+  let [head, tail] = ip.split('::');
+  const h = head ? head.split(':').filter(Boolean) : [];
+  const t = tail !== undefined ? (tail ? tail.split(':').filter(Boolean) : []) : null;
+  let parts;
+  if (t === null) { parts = h; } else { parts = [...h, ...Array(8 - h.length - t.length).fill('0'), ...t]; }
+  if (parts.length !== 8) return null;
+  let n = 0n; for (const x of parts) { const v = parseInt(x || '0', 16); if (isNaN(v)) return null; n = (n << 16n) + BigInt(v); }
+  return n;
+}
+function parseCidr(cidr) {
+  const [base, bitsStr] = cidr.split('/'); const bits = parseInt(bitsStr, 10);
+  if (isNaN(bits)) return null;
+  if (base.includes(':')) {
+    const b = ipv6ToBigInt(base); if (b === null || bits < 0 || bits > 128) return null;
+    const mask = bits === 0 ? 0n : (((1n << BigInt(bits)) - 1n) << BigInt(128 - bits));
+    return { v6: true, base: b & mask, mask };
+  }
+  const b = ipv4ToInt(base); if (b === null || bits < 0 || bits > 32) return null;
+  const mask = bits === 0 ? 0 : (-1 << (32 - bits)) >>> 0;
+  return { v6: false, base: (b & mask) >>> 0, mask };
+}
 function checkIOC(ip) {
-  return iocCache.ips.has(ip);
+  if (iocCache.ips.has(ip)) return true;               // exact match (fast path)
+  if (ip.includes(':')) {
+    const v = ipv6ToBigInt(ip); if (v === null) return false;
+    for (const c of iocCache.cidrs6) if ((v & c.mask) === c.base) return true;
+    return false;
+  }
+  const v = ipv4ToInt(ip); if (v === null) return false;
+  for (const c of iocCache.cidrs4) if (((v & c.mask) >>> 0) === c.base) return true;
+  return false;
 }
 
 function blockedResponse(ip) {

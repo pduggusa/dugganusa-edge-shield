@@ -394,6 +394,39 @@ async function reportFeedHit(env, indicator) {
 }
 
 // ================================================================
+// PER-IP RATE LIMIT — trim availability guard (added 2026-07-10)
+// One cheap scraper caused 1,032 origin 504s + 1,047 API extractions before
+// anything reacted. We are bootstrapped — we do NOT scale the origin to absorb
+// abuse; we bounce volume at the edge for free. Per-isolate in-memory window
+// (no paid ratelimit binding / Durable Object / KV): a single-IP flood
+// geo-routes to one PoP+isolate, so this counter catches it at zero cost.
+// Two-tier so authenticated customers (valid key) get generous headroom.
+// ================================================================
+const RL_WINDOW_MS = 60_000;
+const RL_ANON = 100; // req/min per anonymous IP — no human or feed customer hits this
+const RL_AUTH = 500; // req/min when an API key is presented — lets real customers burst
+const rlBuckets = new Map(); // ip -> { count, windowStart }
+function rateLimited(ip, authed) {
+  if (!ip) return false;
+  const now = Date.now();
+  let b = rlBuckets.get(ip);
+  if (!b || now - b.windowStart >= RL_WINDOW_MS) { b = { count: 0, windowStart: now }; rlBuckets.set(ip, b); }
+  b.count++;
+  if (rlBuckets.size > 20000) { // bound memory — evict expired windows opportunistically
+    for (const [k, v] of rlBuckets) if (now - v.windowStart >= RL_WINDOW_MS) rlBuckets.delete(k);
+  }
+  return b.count > (authed ? RL_AUTH : RL_ANON);
+}
+function rateLimitedResponse(ip, authed) {
+  const limit = authed ? RL_AUTH : RL_ANON;
+  return new Response(JSON.stringify({
+    error: 'rate_limited',
+    message: `Too many requests — limit ${limit}/min per IP.` + (authed ? '' : ' Register a free API key for higher limits: https://analytics.dugganusa.com/stix/register'),
+    ip,
+  }), { status: 429, headers: { 'content-type': 'application/json', 'retry-after': '60', 'x-dugganusa-shield': 'rate-limit' } });
+}
+
+// ================================================================
 // MAIN HANDLER
 // ================================================================
 
@@ -438,6 +471,16 @@ export default {
       // Return convincing fake response — waste their time
       return honeypotResponse(request, cf, canary);
     }
+
+    // ============================================================
+    // LAYER 3.5: Per-IP rate limit — trim availability guard
+    // Runs only on origin-bound traffic (scanner/IOC/honeypot already handled
+    // their cases above). Bounces a volume flood before it can strain the trim
+    // origin. Anonymous IPs get RL_ANON/min; a presented API key gets RL_AUTH/min
+    // (the origin still validates the key — this only caps request RATE).
+    // ============================================================
+    const authed = !!(request.headers.get('authorization') || new URL(request.url).searchParams.get('api_key'));
+    if (rateLimited(ip, authed)) return rateLimitedResponse(ip, authed);
 
     // ============================================================
     // LAYER 4: Geo headers + analytics enrichment

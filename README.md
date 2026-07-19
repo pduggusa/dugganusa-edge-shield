@@ -219,19 +219,56 @@ def log_geo():
 
 ---
 
-## Privacy
+## Privacy — read this before deploying
 
-When you use Edge Shield, we see:
+The Worker runs on **YOUR** Cloudflare account. We provide the intelligence. But two
+features do send data back to us, and you should decide about them deliberately.
+
+### Normal traffic: we see nothing
+
+For ordinary requests — including requests we block from the IOC feed — we receive
+only:
 - API key usage (query count per day)
 - Which IOC lists you pull
 
-We do **NOT** see:
-- Your visitors
-- Your traffic
-- Your origin server
-- Anything about your site
+No visitor data. No request URLs. No origin details.
 
-The Worker runs on **YOUR** Cloudflare account. We provide the intelligence. You control everything else.
+### Honeypot canaries: we receive visitor data (Layer 3)
+
+Edge Shield includes decoy paths (`.env`, `/wp-login.php`, `/webmail`, and others).
+When a request hits one, `indexHoneypotHit()` sends us:
+
+- the visitor's **IP address**
+- the full **User-Agent**
+- **city, region, country, ASN** and ASN organisation
+- the **full request URL**, HTTP method, TLS version and Cloudflare bot score
+
+That is visitor data and site data. **An earlier version of this README stated we
+see none of it. That was wrong** — the code always sent it. We corrected the
+document rather than quietly changing the behaviour, because customers made
+deployment decisions against the old text.
+
+**If you operate in the EU or handle personal data:** an IP address plus
+User-Agent plus geolocation is personal data under GDPR, and this is a transfer to
+a third party. Get a DPA in place or disable the feature before deploying.
+
+**To disable honeypots entirely**, set `HONEYPOTS_ENABLED = "false"` in your
+`wrangler.toml` vars. IOC blocking is unaffected.
+
+### Feed hit reporting
+
+If enabled, we receive the **indicator** that matched plus a hash of your API key —
+never your visitor's identity. One caveat: when a match comes from a **CIDR range**
+(ASN prefixes, /24 blocks), the reported IP may be an address we never published
+individually. It is still an address that matched a range you chose to block.
+
+### Canary paths may collide with your real routes
+
+The decoy list was written for our own infrastructure. Paths like `/graphql`,
+`/webmail/*`, and anything containing `.env` will return **deception content
+instead of your real response**, and the requesting IP will be reported to us as a
+scanner. If you serve any of those paths legitimately, disable honeypots or edit
+`CANARY_PATHS` before deploying.
 
 ---
 

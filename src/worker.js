@@ -346,7 +346,15 @@ async function indexHoneypotHit(env, request, cf, canary) {
     id: `honeypot-${ip.replace(/[.:]/g, '-')}-${Date.now()}`,
     value: ip,
     type: ipType,
+    // ATTRIBUTION (2026-07-19). This Worker runs on CUSTOMER infrastructure as
+    // well as ours, and previously tagged every hit `edge-honeypot` — the same
+    // source our Spamhaus contributor treats as a genuinely first-hand DugganUSA
+    // sensor observation. Submitting a customer's edge traffic as our own
+    // observation is both an evidence-provenance problem and an accuracy risk:
+    // one customer false positive lands on our externally-measured match rate.
+    // deployment_host makes ours vs. theirs separable downstream.
     source: 'edge-honeypot',
+    deployment_host: (() => { try { return new URL(request.url).hostname; } catch { return ''; } })(),
     threat_type: 'scanner',
     malware_family: canary.type,
     confidence: 95,
@@ -506,8 +514,15 @@ export default {
     // ============================================================
     // LAYER 3: Honeypot canaries — trap recon, harvest fingerprints
     // ============================================================
+    // OPT-OUT (2026-07-19). Honeypots send visitor IP, User-Agent, geo and the
+    // full request URL back to DugganUSA — see the Privacy section of the README.
+    // They also return deception content on matching paths, which collides with
+    // real routes: /graphql, /webmail/*, and anything containing `.env` all match.
+    // A customer serving those legitimately needs a way off, and the README now
+    // documents this flag, so it has to actually work.
+    const honeypotsEnabled = String(env.HONEYPOTS_ENABLED ?? 'true').toLowerCase() !== 'false';
     const path = new URL(request.url).pathname;
-    const canary = getCanary(path);
+    const canary = honeypotsEnabled ? getCanary(path) : null;
     if (canary) {
       // Index the attacker's fingerprint into the STIX feed (non-blocking)
       ctx.waitUntil(indexHoneypotHit(env, request, cf, canary));

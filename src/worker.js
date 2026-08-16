@@ -107,13 +107,13 @@ const crawlerVerdicts = new Map();
 const CRAWLER_CACHE_MAX = 2000;
 const CRAWLER_CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6h
 
-function cacheVerdict(ip, ok) {
+function cacheVerdict(key, ok) {
   if (crawlerVerdicts.size >= CRAWLER_CACHE_MAX) {
     // Cheapest sane eviction: drop the oldest insertion.
     const oldest = crawlerVerdicts.keys().next().value;
     if (oldest !== undefined) crawlerVerdicts.delete(oldest);
   }
-  crawlerVerdicts.set(ip, { ok, at: Date.now() });
+  crawlerVerdicts.set(key, { ok, at: Date.now() });
   return ok;
 }
 
@@ -125,25 +125,60 @@ async function dohQuery(name, type) {
   return (body.Answer || []).map(a => String(a.data || '').replace(/\.$/, ''));
 }
 
+/** Expand an IPv6 address to its full 32 hex nibbles. Returns null if malformed. */
+function expandIPv6(ip) {
+  const bare = ip.split('%')[0];
+  if (!/^[0-9a-fA-F:]+$/.test(bare)) return null;
+  const halves = bare.split('::');
+  if (halves.length > 2) return null;
+  const head = halves[0] ? halves[0].split(':').filter(Boolean) : [];
+  const tail = halves.length === 2 && halves[1] ? halves[1].split(':').filter(Boolean) : [];
+  if (halves.length === 1 && head.length !== 8) return null;
+  const fill = 8 - head.length - tail.length;
+  if (fill < 0) return null;
+  const groups = [...head, ...Array(halves.length === 2 ? fill : 0).fill('0'), ...tail];
+  if (groups.length !== 8) return null;
+  return groups.map(g => g.padStart(4, '0')).join('').toLowerCase();
+}
+
 function ptrName(ip) {
-  if (ip.includes(':')) return null; // IPv6 PTR nibble form — skip, see below
+  if (ip.includes(':')) {
+    // IPv6 reverse: 32 nibbles, reversed, dotted, under ip6.arpa. Implemented
+    // rather than skipped — Meta's crawler is largely IPv6, and "skip" used to
+    // mean "fail open," which was a hole you could drive a truck through.
+    const hex = expandIPv6(ip);
+    if (!hex || hex.length !== 32) return null;
+    return hex.split('').reverse().join('.') + '.ip6.arpa';
+  }
   const p = ip.split('.');
   if (p.length !== 4) return null;
+  if (!p.every(o => /^\d{1,3}$/.test(o) && Number(o) <= 255)) return null;
   return `${p[3]}.${p[2]}.${p[1]}.${p[0]}.in-addr.arpa`;
 }
 
 /**
  * Is this request a legitimate, verified crawler?
  *
- * FAILS CLOSED on the UA gate (a UA that claims nothing gets no allowlist) and
- * OPEN on DNS trouble for a UA that DOES claim a known crawler — a resolver blip
- * must not silently drop us out of a search index. The blast radius of that
- * fail-open is one un-blocked request from something already claiming to be
- * Googlebot; the blast radius of the other direction is deindexing.
+ * FAILS CLOSED, everywhere, without exception.
  *
- * IPv6 note: Meta's crawler is largely IPv6 and PTR-in-nibble-form is a pain, so
- * IPv6 relies on Cloudflare's verified-bot flag or the fail-open path. That is a
- * known soft spot, written down rather than pretended away.
+ * The first cut of this function failed OPEN on missing IP, on IPv6, and on any
+ * DNS exception, reasoning that a resolver blip must not deindex us. That was
+ * wrong, and it was wrong in the dangerous direction: since the UA gate is the
+ * only thing upstream of it, anyone could set their user-agent to "Googlebot",
+ * connect over IPv6, and bypass scanner detection, IOC blocking, the honeypot
+ * AND the rate limiter in one move. A shield with a spoofable full-bypass is not
+ * a shield.
+ *
+ * The reasoning error was treating "not allowlisted" as "blocked." It is not.
+ * Failing verification simply means the request is handled as ORDINARY TRAFFIC —
+ * it still passes straight through every layer unless it independently trips
+ * scanner detection, appears on a high-confidence IOC list, requests a honeypot
+ * canary, or floods. A real crawler does none of those things. So the true cost
+ * of failing closed is very close to zero, while the cost of failing open is a
+ * trivially spoofable bypass of the entire product.
+ *
+ * IPv6 is fully supported via nibble-form PTR (see ptrName) rather than skipped,
+ * because Meta's crawler is largely IPv6 and "skip" previously meant "fail open."
  */
 async function isVerifiedCrawler(request, cf) {
   const ua = (request.headers.get('user-agent') || '').toLowerCase();
@@ -152,32 +187,44 @@ async function isVerifiedCrawler(request, cf) {
   const match = CRAWLER_UA_TO_DOMAINS.find(c => ua.includes(c.ua));
   if (!match) return false;
 
-  // Fast path: Cloudflare already did forward-confirmed rDNS for us.
+  // Fast path: Cloudflare already did forward-confirmed rDNS for us and is
+  // authoritative. This is a CF-populated field on request.cf, not a client
+  // header, so it is not attacker-controlled.
   if (cf.botManagement?.verifiedBot === true) return true;
   if (cf.verifiedBotCategory && cf.verifiedBotCategory !== 'Not Verified') return true;
 
   const ip = request.headers.get('cf-connecting-ip') || '';
-  if (!ip) return true; // claimed a crawler, nothing to check against — fail open
+  if (!ip) return false; // nothing to verify against → not verified
 
-  const cached = crawlerVerdicts.get(ip);
+  // Key the cache on IP **and** the crawler family being claimed. Keying on IP
+  // alone would let a verdict earned as one operator be replayed as another: a
+  // genuine Googlebot address verifies true, and a later request from that same
+  // address claiming to be meta-externalagent would inherit the cached pass
+  // without its own forward-confirmation.
+  const key = `${ip}|${match.ua}`;
+  const cached = crawlerVerdicts.get(key);
   if (cached && (Date.now() - cached.at) < CRAWLER_CACHE_TTL_MS) return cached.ok;
 
   const rev = ptrName(ip);
-  if (!rev) return true; // IPv6 — fail open, see note above
+  if (!rev) return false; // unparseable address → not verified
 
   try {
     const ptrs = await dohQuery(rev, 'PTR');
-    if (!ptrs.length) return cacheVerdict(ip, false); // definitive: no PTR, not a real crawler
+    if (!ptrs.length) return cacheVerdict(key, false); // no PTR → not a real crawler
 
     const host = ptrs.find(h => match.domains.some(d => h.toLowerCase().endsWith(d)));
-    if (!host) return cacheVerdict(ip, false); // PTR exists but is not the operator's
+    if (!host) return cacheVerdict(key, false); // PTR exists but is not the operator's
 
     // Forward-confirm: the operator's hostname must resolve back to this same IP.
+    // A PTR record alone is controlled by whoever owns the reverse zone.
     const fwd = await dohQuery(host, ip.includes(':') ? 'AAAA' : 'A');
-    return cacheVerdict(ip, fwd.includes(ip));
+    const ok = fwd.some(a => a.toLowerCase() === ip.toLowerCase());
+    return cacheVerdict(key, ok);
   } catch (e) {
+    // Resolver trouble → NOT verified. Deliberately not cached: a transient DNS
+    // failure must not pin a real crawler to "unverified" for the cache TTL.
     console.log(`crawler verify error for ${ip}: ${e.message}`);
-    return true; // resolver trouble → fail open rather than risk deindexing
+    return false;
   }
 }
 

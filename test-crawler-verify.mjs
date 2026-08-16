@@ -19,7 +19,7 @@ const slice = (from, to) => {
   return src.slice(a, b);
 };
 const code = slice('const CRAWLER_UA_TO_DOMAINS', '// ================================================================\n// IN-MEMORY IOC CACHE');
-const mod = await import('data:text/javascript,' + encodeURIComponent(code + '\nexport { isVerifiedCrawler, CRAWLER_UA_TO_DOMAINS };'));
+const mod = await import('data:text/javascript,' + encodeURIComponent(code + '\nexport { isVerifiedCrawler, CRAWLER_UA_TO_DOMAINS, ptrName, expandIPv6 };'));
 
 const req = (ua, ip) => ({ headers: { get: (h) => (h === 'user-agent' ? ua : h === 'cf-connecting-ip' ? ip : null) } });
 
@@ -43,12 +43,47 @@ const cases = [
 ];
 
 let pass = 0, fail = 0;
+const check = (label, got, want) => {
+  if (got === want) { pass++; console.log(`  ✅ ${label}`); }
+  else { fail++; console.log(`  ❌ ${label}\n       want ${want}, got ${got}`); }
+};
+
 for (const [label, ua, ip, cf, want] of cases) {
   let got;
   try { got = await mod.isVerifiedCrawler(req(ua, ip), cf); }
   catch (e) { got = `ERROR ${e.message}`; }
-  if (got === want) { pass++; console.log(`  ✅ ${label}`); }
-  else { fail++; console.log(`  ❌ ${label}\n       want ${want}, got ${got}`); }
+  check(label, got, want);
 }
+
+// --- FAIL-CLOSED regression suite -------------------------------------------
+// The first cut of isVerifiedCrawler failed OPEN on missing IP, on IPv6, and on
+// any DNS exception. Because the UA gate is the only thing upstream, that made
+// the entire shield — scanner detection, IOC blocking, honeypot AND rate limit —
+// bypassable by setting a header and connecting over IPv6. These cases exist so
+// that hole cannot be reintroduced quietly.
+console.log('\nFail-closed regression suite\n');
+
+check('no client IP → NOT verified (was: fail open)',
+  await mod.isVerifiedCrawler(req(GOOGLEBOT_UA, ''), {}), false);
+
+check('IPv6 impostor claiming Googlebot → NOT verified (was: fail open)',
+  await mod.isVerifiedCrawler(req(GOOGLEBOT_UA, '2a03:2880:f802:37::1'), {}), false);
+
+check('garbage IP claiming Googlebot → NOT verified',
+  await mod.isVerifiedCrawler(req(GOOGLEBOT_UA, 'not-an-ip'), {}), false);
+
+check('out-of-range octets claiming Googlebot → NOT verified',
+  await mod.isVerifiedCrawler(req(GOOGLEBOT_UA, '999.1.1.1'), {}), false);
+
+// IPv6 is genuinely supported now, not skipped — Meta's crawler is largely IPv6.
+check('IPv6 PTR is nibble-form under ip6.arpa (not skipped)',
+  mod.ptrName('2a03:2880:f802:37::1'),
+  '1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.7.3.0.0.2.0.8.f.0.8.8.2.3.0.a.2.ip6.arpa');
+
+check('IPv6 expansion pads and fills correctly',
+  mod.expandIPv6('2a03:2880:f802:37::1'), '2a032880f80200370000000000000001');
+
+check('IPv4 PTR is in-addr.arpa', mod.ptrName('66.249.66.1'), '1.66.249.66.in-addr.arpa');
+
 console.log(`\npass ${pass} | fail ${fail}`);
 process.exit(fail ? 1 : 0);

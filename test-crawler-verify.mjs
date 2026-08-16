@@ -85,17 +85,25 @@ check('IPv6 expansion pads and fills correctly',
 
 check('IPv4 PTR is in-addr.arpa', mod.ptrName('66.249.66.1'), '1.66.249.66.in-addr.arpa');
 
-// --- Meta: ASN proof, because Meta publishes no usable rDNS -------------------
-// Verified 2026-08-16: 332/332 blocked meta-externalagent events were AS32934 /
-// 2a03:2880::/32, Meta's own allocation. rDNS verification can never pass for
-// them, so without the ASN path the crawler this change exists for stays blocked.
+// --- Policy exclusions: these must NEVER be allowlisted ----------------------
+// Meta, Yandex and Bytespider are declined by decision, not by accident
+// (Patrick, 2026-08-16: "meta and yandex are fine in the sin bin"). These cases
+// exist so a future well-meaning edit that re-adds them fails the suite loudly.
 const META_UA = 'meta-externalagent/1.1 (+https://developers.facebook.com/docs/sharing/webmasters/crawler)';
+const YANDEX_UA = 'Mozilla/5.0 (compatible; YandexBot/3.0; +http://yandex.com/bots)';
 
-check('real Meta crawler (AS32934) verifies via operator-exclusive ASN',
-  await mod.isVerifiedCrawler(req(META_UA, '2a03:2880:f800:42::'), { asn: 32934 }), true);
+check('GENUINE Meta (AS32934) is still NOT allowlisted — policy exclusion',
+  await mod.isVerifiedCrawler(req(META_UA, '2a03:2880:f800:42::'), { asn: 32934 }), false);
 
-check('Meta UA from a NON-Meta ASN is NOT verified',
-  await mod.isVerifiedCrawler(req(META_UA, '34.145.203.169'), { asn: 15169 }), false);
+check('facebookexternalhit is not allowlisted — policy exclusion',
+  await mod.isVerifiedCrawler(req('facebookexternalhit/1.1', '2a03:2880:f800:42::'), { asn: 32934 }), false);
+
+check('YandexBot is not allowlisted — policy exclusion',
+  await mod.isVerifiedCrawler(req(YANDEX_UA, '5.255.253.1'), {}), false);
+
+check('policy exclusions are absent from the allowlist table',
+  ['meta-externalagent','facebookexternalhit','yandexbot','bytespider']
+    .some(u => mod.CRAWLER_UA_TO_DOMAINS.some(c => c.ua === u)), false);
 
 check('Googlebot UA does NOT get an ASN shortcut (AS15169 is rentable)',
   await mod.isVerifiedCrawler(req(GOOGLEBOT_UA, '34.145.203.169'), { asn: 15169 }), false);

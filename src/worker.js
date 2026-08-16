@@ -81,18 +81,9 @@ const CRAWLER_UA_TO_DOMAINS = [
   { ua: 'google-inspectiontool', domains: ['.googlebot.com', '.google.com'] },
   { ua: 'bingbot',            domains: ['.search.msn.com'] },
   { ua: 'adidxbot',           domains: ['.search.msn.com'] },
-  // Meta publishes NO reverse DNS for its crawler fleet, so rDNS verification can
-  // never pass and would leave the exact crawler this whole change exists for
-  // still blocked. Verified 2026-08-16: 332/332 blocked meta-externalagent events
-  // were AS32934 / 2a03:2880::/32 — Meta's own allocation, every one genuine.
-  // ASN is a valid proof HERE and only here: AS32934 is Meta-exclusive and cannot
-  // be rented, unlike AS15169 where Googlebot shares space with GCP customers.
-  { ua: 'meta-externalagent', domains: ['.facebook.com', '.fbsv.net'], asns: [32934] },
-  { ua: 'facebookexternalhit',domains: ['.facebook.com', '.fbsv.net'], asns: [32934] },
   { ua: 'twitterbot',         domains: ['.twttr.com', '.twitter.com'] },
   { ua: 'applebot',           domains: ['.applebot.apple.com'] },
   { ua: 'duckduckbot',        domains: ['.duckduckgo.com'] },
-  { ua: 'yandexbot',          domains: ['.yandex.ru', '.yandex.net', '.yandex.com'] },
   { ua: 'amazonbot',          domains: ['.crawl.amazon.com'] },
   // AI crawlers are deliberately included. Our reach is disproportionately
   // AI-mediated, and an AI assistant that cannot read us cannot cite us.
@@ -104,8 +95,27 @@ const CRAWLER_UA_TO_DOMAINS = [
   { ua: 'perplexitybot',      domains: ['.perplexity.ai'] },
 ];
 
-// Deliberately NOT allowlisted: Bytespider. Blocking it is a defensible choice
-// that plenty of sites make, and it was our single noisiest crawler.
+// DELIBERATELY NOT ALLOWLISTED — policy, not oversight. Do not "fix" these back
+// in; the omissions are the decision (Patrick, 2026-08-16: "meta and yandex are
+// fine in the sin bin").
+//
+//   Bytespider (ByteDance) — our single noisiest crawler by volume, 671 events
+//     across 61 hosts in sixteen days. Plenty of sites decline it.
+//   meta-externalagent / facebookexternalhit — 332 events / 112 hosts, and
+//     confirmed GENUINE Meta (332/332 AS32934, 2a03:2880::/32). Declining it is
+//     a deliberate choice about who gets to read us, not a false positive.
+//   yandexbot — same call.
+//
+// These are ALSO blocked upstream by a Cloudflare WAF custom rule, which runs
+// BEFORE Workers, so today the worker never sees them. That is exactly why the
+// omission is written down: if the WAF rule is ever relaxed, this file must not
+// silently start admitting them again. Code and policy agree on purpose.
+//
+// The Meta ASN-verification path was removed with them. If Meta is ever let back
+// in, note that rDNS CANNOT verify it — Meta publishes none — so it needs
+// `asns: [32934]`. AS32934 is Meta-exclusive and unrentable, which is what makes
+// ASN valid there. Never do this for AS15169: Googlebot shares it with every GCP
+// customer, and the fake "Amazonbot" fleet we caught was riding exactly that.
 
 // Verification is a network round trip, so cache the verdict per IP. Bounded —
 // an unbounded Map in a long-lived isolate is a memory leak with extra steps.

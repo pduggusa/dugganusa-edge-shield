@@ -81,8 +81,14 @@ const CRAWLER_UA_TO_DOMAINS = [
   { ua: 'google-inspectiontool', domains: ['.googlebot.com', '.google.com'] },
   { ua: 'bingbot',            domains: ['.search.msn.com'] },
   { ua: 'adidxbot',           domains: ['.search.msn.com'] },
-  { ua: 'meta-externalagent', domains: ['.facebook.com', '.fbsv.net'] },
-  { ua: 'facebookexternalhit',domains: ['.facebook.com', '.fbsv.net'] },
+  // Meta publishes NO reverse DNS for its crawler fleet, so rDNS verification can
+  // never pass and would leave the exact crawler this whole change exists for
+  // still blocked. Verified 2026-08-16: 332/332 blocked meta-externalagent events
+  // were AS32934 / 2a03:2880::/32 — Meta's own allocation, every one genuine.
+  // ASN is a valid proof HERE and only here: AS32934 is Meta-exclusive and cannot
+  // be rented, unlike AS15169 where Googlebot shares space with GCP customers.
+  { ua: 'meta-externalagent', domains: ['.facebook.com', '.fbsv.net'], asns: [32934] },
+  { ua: 'facebookexternalhit',domains: ['.facebook.com', '.fbsv.net'], asns: [32934] },
   { ua: 'twitterbot',         domains: ['.twttr.com', '.twitter.com'] },
   { ua: 'applebot',           domains: ['.applebot.apple.com'] },
   { ua: 'duckduckbot',        domains: ['.duckduckgo.com'] },
@@ -192,6 +198,13 @@ async function isVerifiedCrawler(request, cf) {
   // header, so it is not attacker-controlled.
   if (cf.botManagement?.verifiedBot === true) return true;
   if (cf.verifiedBotCategory && cf.verifiedBotCategory !== 'Not Verified') return true;
+
+  // Operator-exclusive ASN. Only set for operators that publish no usable rDNS
+  // AND own space nobody can rent — currently Meta (AS32934). cf.asn is derived
+  // by Cloudflare from the BGP table, not from anything the client sends, so it
+  // is as trustworthy as the connection itself. Never add a cloud provider's ASN
+  // here: AS15169 would admit every GCP-hosted scraper on the internet.
+  if (match.asns && cf.asn && match.asns.includes(Number(cf.asn))) return true;
 
   const ip = request.headers.get('cf-connecting-ip') || '';
   if (!ip) return false; // nothing to verify against → not verified

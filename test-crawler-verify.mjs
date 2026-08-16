@@ -85,5 +85,20 @@ check('IPv6 expansion pads and fills correctly',
 
 check('IPv4 PTR is in-addr.arpa', mod.ptrName('66.249.66.1'), '1.66.249.66.in-addr.arpa');
 
+// --- Meta: ASN proof, because Meta publishes no usable rDNS -------------------
+// Verified 2026-08-16: 332/332 blocked meta-externalagent events were AS32934 /
+// 2a03:2880::/32, Meta's own allocation. rDNS verification can never pass for
+// them, so without the ASN path the crawler this change exists for stays blocked.
+const META_UA = 'meta-externalagent/1.1 (+https://developers.facebook.com/docs/sharing/webmasters/crawler)';
+
+check('real Meta crawler (AS32934) verifies via operator-exclusive ASN',
+  await mod.isVerifiedCrawler(req(META_UA, '2a03:2880:f800:42::'), { asn: 32934 }), true);
+
+check('Meta UA from a NON-Meta ASN is NOT verified',
+  await mod.isVerifiedCrawler(req(META_UA, '34.145.203.169'), { asn: 15169 }), false);
+
+check('Googlebot UA does NOT get an ASN shortcut (AS15169 is rentable)',
+  await mod.isVerifiedCrawler(req(GOOGLEBOT_UA, '34.145.203.169'), { asn: 15169 }), false);
+
 console.log(`\npass ${pass} | fail ${fail}`);
 process.exit(fail ? 1 : 0);

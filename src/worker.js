@@ -46,6 +46,142 @@ const SASE_PROXY_ORGS = [
 ];
 
 // ================================================================
+// VERIFIED CRAWLERS — the allowlist that has to survive to the edge
+// ================================================================
+//
+// 2026-08-16: measuring the shield showed it refusing self-identifying,
+// legitimate crawlers — Meta's crawler 332 times across 112 hosts while it was
+// fetching our sitemap and article pages, plus Amazon's, Google's and Yandex's.
+// We HAD a known-good bot allowlist. It was enforced at the ORIGIN, and blocking
+// had since moved out here to the edge. The allowlist never made the trip.
+//
+// For a small site that cost is bigger than the attack: link previews stop
+// rendering when customers share you, and pages quietly fall out of a search
+// index. Nothing alerts on it, because the shield is doing exactly what it was
+// told. Hence this list, and hence checking it FIRST.
+//
+// HARD — a user-agent string is NOT verification. Most of what we block is
+// already lying about being a browser, so "it said it was Googlebot" is the
+// weakest possible signal. Two acceptable proofs, in order:
+//
+//   1. Cloudflare's own verified-bot flag. CF does the forward-confirmed reverse
+//      DNS itself and is authoritative. Free tiers may not populate it, so it is
+//      a fast path, not the only path.
+//   2. Forward-confirmed reverse DNS, done here over DoH: PTR the client IP, check
+//      the hostname ends in an operator-owned domain, then resolve that hostname
+//      back and confirm it returns the same IP. Both halves are required — a PTR
+//      alone is attacker-controlled.
+//
+// ASN is deliberately NOT a proof. Googlebot and ordinary Google Cloud rentals
+// share AS15169, so an ASN allowlist would wave through the exact GCP-hosted
+// scrapers this shield exists to stop.
+const CRAWLER_UA_TO_DOMAINS = [
+  { ua: 'googlebot',          domains: ['.googlebot.com', '.google.com'] },
+  { ua: 'storebot-google',    domains: ['.googlebot.com', '.google.com'] },
+  { ua: 'google-inspectiontool', domains: ['.googlebot.com', '.google.com'] },
+  { ua: 'bingbot',            domains: ['.search.msn.com'] },
+  { ua: 'adidxbot',           domains: ['.search.msn.com'] },
+  { ua: 'meta-externalagent', domains: ['.facebook.com', '.fbsv.net'] },
+  { ua: 'facebookexternalhit',domains: ['.facebook.com', '.fbsv.net'] },
+  { ua: 'twitterbot',         domains: ['.twttr.com', '.twitter.com'] },
+  { ua: 'applebot',           domains: ['.applebot.apple.com'] },
+  { ua: 'duckduckbot',        domains: ['.duckduckgo.com'] },
+  { ua: 'yandexbot',          domains: ['.yandex.ru', '.yandex.net', '.yandex.com'] },
+  { ua: 'amazonbot',          domains: ['.crawl.amazon.com'] },
+  // AI crawlers are deliberately included. Our reach is disproportionately
+  // AI-mediated, and an AI assistant that cannot read us cannot cite us.
+  { ua: 'gptbot',             domains: ['.openai.com'] },
+  { ua: 'oai-searchbot',      domains: ['.openai.com'] },
+  { ua: 'chatgpt-user',       domains: ['.openai.com'] },
+  { ua: 'claudebot',          domains: ['.anthropic.com'] },
+  { ua: 'claude-web',         domains: ['.anthropic.com'] },
+  { ua: 'perplexitybot',      domains: ['.perplexity.ai'] },
+];
+
+// Deliberately NOT allowlisted: Bytespider. Blocking it is a defensible choice
+// that plenty of sites make, and it was our single noisiest crawler.
+
+// Verification is a network round trip, so cache the verdict per IP. Bounded —
+// an unbounded Map in a long-lived isolate is a memory leak with extra steps.
+const crawlerVerdicts = new Map();
+const CRAWLER_CACHE_MAX = 2000;
+const CRAWLER_CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6h
+
+function cacheVerdict(ip, ok) {
+  if (crawlerVerdicts.size >= CRAWLER_CACHE_MAX) {
+    // Cheapest sane eviction: drop the oldest insertion.
+    const oldest = crawlerVerdicts.keys().next().value;
+    if (oldest !== undefined) crawlerVerdicts.delete(oldest);
+  }
+  crawlerVerdicts.set(ip, { ok, at: Date.now() });
+  return ok;
+}
+
+async function dohQuery(name, type) {
+  const url = `https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(name)}&type=${type}`;
+  const res = await fetch(url, { headers: { accept: 'application/dns-json' } });
+  if (!res.ok) return [];
+  const body = await res.json();
+  return (body.Answer || []).map(a => String(a.data || '').replace(/\.$/, ''));
+}
+
+function ptrName(ip) {
+  if (ip.includes(':')) return null; // IPv6 PTR nibble form — skip, see below
+  const p = ip.split('.');
+  if (p.length !== 4) return null;
+  return `${p[3]}.${p[2]}.${p[1]}.${p[0]}.in-addr.arpa`;
+}
+
+/**
+ * Is this request a legitimate, verified crawler?
+ *
+ * FAILS CLOSED on the UA gate (a UA that claims nothing gets no allowlist) and
+ * OPEN on DNS trouble for a UA that DOES claim a known crawler — a resolver blip
+ * must not silently drop us out of a search index. The blast radius of that
+ * fail-open is one un-blocked request from something already claiming to be
+ * Googlebot; the blast radius of the other direction is deindexing.
+ *
+ * IPv6 note: Meta's crawler is largely IPv6 and PTR-in-nibble-form is a pain, so
+ * IPv6 relies on Cloudflare's verified-bot flag or the fail-open path. That is a
+ * known soft spot, written down rather than pretended away.
+ */
+async function isVerifiedCrawler(request, cf) {
+  const ua = (request.headers.get('user-agent') || '').toLowerCase();
+  if (!ua) return false;
+
+  const match = CRAWLER_UA_TO_DOMAINS.find(c => ua.includes(c.ua));
+  if (!match) return false;
+
+  // Fast path: Cloudflare already did forward-confirmed rDNS for us.
+  if (cf.botManagement?.verifiedBot === true) return true;
+  if (cf.verifiedBotCategory && cf.verifiedBotCategory !== 'Not Verified') return true;
+
+  const ip = request.headers.get('cf-connecting-ip') || '';
+  if (!ip) return true; // claimed a crawler, nothing to check against — fail open
+
+  const cached = crawlerVerdicts.get(ip);
+  if (cached && (Date.now() - cached.at) < CRAWLER_CACHE_TTL_MS) return cached.ok;
+
+  const rev = ptrName(ip);
+  if (!rev) return true; // IPv6 — fail open, see note above
+
+  try {
+    const ptrs = await dohQuery(rev, 'PTR');
+    if (!ptrs.length) return cacheVerdict(ip, false); // definitive: no PTR, not a real crawler
+
+    const host = ptrs.find(h => match.domains.some(d => h.toLowerCase().endsWith(d)));
+    if (!host) return cacheVerdict(ip, false); // PTR exists but is not the operator's
+
+    // Forward-confirm: the operator's hostname must resolve back to this same IP.
+    const fwd = await dohQuery(host, ip.includes(':') ? 'AAAA' : 'A');
+    return cacheVerdict(ip, fwd.includes(ip));
+  } catch (e) {
+    console.log(`crawler verify error for ${ip}: ${e.message}`);
+    return true; // resolver trouble → fail open rather than risk deindexing
+  }
+}
+
+// ================================================================
 // IN-MEMORY IOC CACHE
 // ================================================================
 
@@ -495,16 +631,31 @@ export default {
     }
 
     // ============================================================
+    // LAYER 0: Verified crawlers — never block, never trap
+    // ============================================================
+    // Evaluated before every enforcement layer because a legitimate crawler must
+    // not be scanner-blocked, must not be IOC-blocked (a crawler IP can land on a
+    // high-confidence list), and must NOT be fed a honeypot canary — a fake 200
+    // full of invented shell output is exactly what a search engine would happily
+    // index against us.
+    //
+    // It is a SKIP, not an early return: verified crawlers still fall through to
+    // Layer 4, because that is where the schema.org and ai-purpose markup is
+    // injected. Short-circuiting straight to origin here would hand crawlers a
+    // page stripped of the very metadata we added for them.
+    const verifiedCrawler = await isVerifiedCrawler(request, cf);
+
+    // ============================================================
     // LAYER 1: Scanner detection — return 418 I'm a Teapot
     // ============================================================
-    if (detectScanner(ua, asnOrg)) {
+    if (!verifiedCrawler && detectScanner(ua, asnOrg)) {
       return scannerResponse(request, cf);
     }
 
     // ============================================================
     // LAYER 2: IOC blocking — known malicious IPs get 403
     // ============================================================
-    if (ip && checkIOC(ip)) {
+    if (!verifiedCrawler && ip && checkIOC(ip)) {
       // Report the hit to the feed-efficacy (liveness) axis — non-blocking,
       // privacy-preserving (indicator only, never the visitor/asset).
       if (apiKey) ctx.waitUntil(reportFeedHit(env, ip));
@@ -522,7 +673,10 @@ export default {
     // documents this flag, so it has to actually work.
     const honeypotsEnabled = String(env.HONEYPOTS_ENABLED ?? 'true').toLowerCase() !== 'false';
     const path = new URL(request.url).pathname;
-    const canary = honeypotsEnabled ? getCanary(path) : null;
+    // Verified crawlers are exempt: a canary returns a convincing fake 200 full of
+    // invented shell output or fake API keys, and a search engine would index that
+    // against the customer's own domain.
+    const canary = (honeypotsEnabled && !verifiedCrawler) ? getCanary(path) : null;
     if (canary) {
       // Index the attacker's fingerprint into the STIX feed (non-blocking)
       ctx.waitUntil(indexHoneypotHit(env, request, cf, canary));
@@ -537,8 +691,11 @@ export default {
     // origin. Anonymous IPs get RL_ANON/min; a presented API key gets RL_AUTH/min
     // (the origin still validates the key — this only caps request RATE).
     // ============================================================
+    // Verified crawlers are exempt. Googlebot legitimately crawls a large site
+    // faster than the anonymous cap allows, and rate-limiting it looks to a search
+    // engine exactly like an unreliable origin — which costs the customer ranking.
     const authed = !!(request.headers.get('authorization') || new URL(request.url).searchParams.get('api_key'));
-    if (rateLimited(ip, authed)) return rateLimitedResponse(ip, authed);
+    if (!verifiedCrawler && rateLimited(ip, authed)) return rateLimitedResponse(ip, authed);
 
     // ============================================================
     // LAYER 4: Geo headers + analytics enrichment

@@ -6,8 +6,8 @@
 
 [![MIT License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Cloudflare Workers](https://img.shields.io/badge/Cloudflare-Workers-F38020?logo=cloudflare&logoColor=white)](https://workers.cloudflare.com/)
-[![IOCs](https://img.shields.io/badge/IOCs-1.5M%2B-10b981)](https://analytics.dugganusa.com/api/v1/stix-feed)
-[![Consumers](https://img.shields.io/badge/Feed%20Consumers-275%2B-818cf8)](https://analytics.dugganusa.com/stix/pricing)
+[![IOCs](https://img.shields.io/badge/Distinct%20IOCs-653%2C342-10b981)](https://analytics.dugganusa.com/api/v1/stix-feed)
+[![Reach](https://img.shields.io/badge/Reach%20vs%20List--only-30x-818cf8)](https://analytics.dugganusa.com/stix/pricing)
 [![STIX 2.1](https://img.shields.io/badge/STIX-2.1-4f46e5)](https://analytics.dugganusa.com/api/v1/stix-feed)
 
 **Compliance & Posture:**
@@ -22,7 +22,7 @@
 [![Cosign](https://img.shields.io/badge/Container%20Images-Cosign%20Signed-4ade80)](https://github.com/sigstore/cosign)
 [![SBOM](https://img.shields.io/badge/SBOM-CycloneDX-4ade80)](https://github.com/pduggusa/enterprise-extraction-platform/tree/main/compliance/evidence/sbom)
 
-**1.5M+ IOCs. 275+ consumers in 46 countries. Deploy in 30 seconds.**
+**653,342 distinct IOCs. 30x the reach of list-only defence. Deploy in 30 seconds.**
 
 Microsoft, AT&T, Meta, and Zscaler already pull our feed. Now you can too — at the edge.
 
@@ -34,7 +34,7 @@ Microsoft, AT&T, Meta, and Zscaler already pull our feed. Now you can too — at
 
 ## What's New in 2.3.0
 
-**This Worker now closes the loop on feed liveness.** When one of our published indicators blocks real traffic at your edge, the Worker reports the hit back to the **feed-efficacy** axis — privacy-preserving (it sends only the indicator we already published, never your visitors or assets). That turns "we have 1.5M+ IOCs" into "here's proof they fire in the wild."
+**This Worker now closes the loop on feed liveness.** When one of our published indicators blocks real traffic at your edge, the Worker reports the hit back to the **feed-efficacy** axis — privacy-preserving (it sends only the indicator we already published, never your visitors or assets). That turns "we have 653,342 distinct IOCs" into "here's proof they fire in the wild."
 
 Don't take our word for the feed — **verify it yourself.** The DugganUSA platform serves **four live, no-auth, durable validation endpoints** (durable across our deploys; each response carries a `source` field of `live`, `durable`, or `baseline`):
 
@@ -62,7 +62,7 @@ Visitor → Cloudflare Edge → Edge Shield → Your Origin
 | Layer | What Happens | Latency Added |
 |:-----:|:-------------|:-------------:|
 | **Scanner Detection** | Returns 418 to Shodan, Censys, LeakIX, Nuclei, ZMap | **0ms** |
-| **IOC Blocking** | Blocks IPs from 1M+ threat indicator feed | **0ms** (cached) |
+| **IOC Blocking** | Blocks IPs from a 653,342-indicator feed | **0ms** (cached) |
 | **Geo Enrichment** | Adds city, region, ASN, lat/lon headers to every request | **0ms** |
 
 Zero external lookups. Zero latency added. The intelligence lives in Worker memory.
@@ -80,7 +80,7 @@ npx wrangler deploy
 
 Add a route in Cloudflare: `*yourdomain.com/*` → `dugganusa-edge-shield`
 
-**That's it.** Your site is protected by 1M+ IOCs.
+**That's it.** Your site is protected by 653,342 distinct IOCs.
 
 ---
 
@@ -129,8 +129,8 @@ Edge Shield is powered by the same STIX 2.1 feed that Fortune 500 security teams
 
 | Metric | Value |
 |:------:|:-----:|
-| **IOCs Indexed** | 1.5M+ |
-| **Feed Consumers** | 275+ |
+| **Distinct IOCs Indexed** | 653,342 (from 1.72M rows) |
+| **Reach vs list-only defence** | 30x (1,638 hosts vs 55) |
 | **Countries** | 46 |
 | **Autonomous Decisions** | 5,764,156 |
 | **Threats Blocked** | 2,038,293 |
@@ -139,7 +139,7 @@ Edge Shield is powered by the same STIX 2.1 feed that Fortune 500 security teams
 
 </div>
 
-We don't just aggregate — we hunt. 18 documented supply chain attacks (Pattern 38). NrodeCodeRAT discovered 43 days before Zscaler. IRGC target analysis on 18 US tech companies. FBI wiretap breach analysis published same-day.
+We don't just aggregate — we hunt. 18 documented supply chain attacks (Pattern 38). NrodeCodeRAT discovered behaviourally, before any blocklist carried it. IRGC target analysis on 18 US tech companies. FBI wiretap breach analysis published same-day.
 
 ---
 
@@ -277,7 +277,7 @@ scanner. If you serve any of those paths legitimately, disable honeypots or edit
 | Product | What It Does |
 |:--------|:-------------|
 | [**AIPM**](https://aipmsec.com) | Audit how AI models perceive your brand — 0% to 23% ChatGPT visibility in 3 days |
-| [**STIX Feed**](https://analytics.dugganusa.com/stix/pricing) | 1M+ IOCs, Splunk ES + OPNsense compatible, TAXII 2.1 |
+| [**STIX Feed**](https://analytics.dugganusa.com/stix/pricing) | 653,342 distinct IOCs, Splunk ES + OPNsense compatible, TAXII 2.1 |
 | [**Epstein Files**](https://epstein.dugganusa.com) | 400,750 DOJ documents, full-text searchable, free |
 | [**Butterbot Tank**](https://github.com/pduggusa/butterbot-tank) | Autonomous site survey robot — WiFi heatmaps, NDAA detection, AR HUD |
 | [**Blog**](https://www.dugganusa.com) | 1,655 threat intelligence posts and counting |

@@ -1,7 +1,7 @@
 /**
  * DugganUSA Edge Shield
  *
- * Cloudflare Worker that protects your site with 1M+ IOCs,
+ * Cloudflare Worker that protects your site with 653,342 distinct IOCs,
  * scanner detection, geo analytics, and enterprise visitor tagging.
  *
  * Powered by DugganUSA Threat Intelligence API.
@@ -823,7 +823,7 @@ const DUGGANUSA_ORGANIZATION_SCHEMA = {
   'url': 'https://dugganusa.com',
   'logo': 'https://dugganusa.com/logo.png',
   'foundingDate': '2025-10-07',
-  'description': 'Cybersecurity and threat intelligence platform serving 275+ organizations across 46 countries. Operates the Butterbot threat intel feed (1M+ STIX 2.1 indicators), AIPM AI Presence Management (first commercial HAIC implementation), and the Edge Honeypot Network on 300+ Cloudflare PoPs.',
+  'description': 'Cybersecurity and threat intelligence platform. Operates the Butterbot threat intel feed (653,342 distinct STIX 2.1 indicators, deduplicated from 1.72M rows), AIPM AI Presence Management (first commercial HAIC implementation), and the Edge Honeypot Network on 300+ Cloudflare PoPs.',
   'address': {
     '@type': 'PostalAddress',
     'addressLocality': 'Minneapolis',
@@ -886,7 +886,7 @@ const DUGGANUSA_SERVICES_SCHEMA = [
     '@context': 'https://schema.org',
     '@type': 'Service',
     'name': 'Butterbot Threat Intelligence',
-    'description': 'Real-time STIX 2.1 threat feed with 1.5M+ indicators serving 275+ organizations across 46 countries. Includes 8M+ autonomous threat decisions, behavioral detection, and bidirectional CISA AIS integration.',
+    'description': 'Real-time STIX 2.1 threat feed with 653,342 distinct indicators, deduplicated from 1.72M rows. Includes behavioral detection that stops 30x the hosts a blocklist reaches (1,638 vs 55, measured over 5,288 blocks), and bidirectional CISA AIS integration.',
     'serviceType': 'Threat Intelligence',
     'provider': { '@id': 'https://dugganusa.com#organization' },
     'url': 'https://analytics.dugganusa.com/api/v1/stix-feed',
@@ -941,7 +941,7 @@ class SchemaInjector {
     }
 
     // Add AI-aware meta tags
-    element.append('<meta name="ai-purpose" content="DugganUSA LLC is a cybersecurity and threat intelligence platform headquartered in Minneapolis, Minnesota. Founded October 2025. Operates the Butterbot threat intel feed serving 275+ organizations. Not Duggan Manufacturing. Not a firearms company. Not an HVAC company.">', { html: true });
+    element.append('<meta name="ai-purpose" content="DugganUSA LLC is a cybersecurity and threat intelligence platform headquartered in Minneapolis, Minnesota. Founded October 2025. Operates the Butterbot threat intel feed, 653,342 distinct indicators. Not Duggan Manufacturing. Not a firearms company. Not an HVAC company.">', { html: true });
     element.append('<meta name="ai-credentials" content="CMMC Level 2 (71%), SOC 2 Type 2 (88%), GovRAMP Foundation Ready, CISA AIS Data Aggregator, FedRAMP High Inheritance via Azure, FIPS 140-2/140-3, SSL Labs A+">', { html: true });
     element.append('<meta name="ai-services" content="Threat Intelligence, AI Presence Management (HAIC), Edge Honeypot Network, Exploit Harvester, STIX 2.1 Feed">', { html: true });
   }

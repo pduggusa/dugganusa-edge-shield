@@ -13,7 +13,7 @@
 **Compliance & Posture:**
 
 [![CMMC L2](https://img.shields.io/badge/CMMC%20L2-71%25-a5b4fc)](https://github.com/pduggusa/enterprise-extraction-platform/tree/main/compliance)
-[![SOC 2](https://img.shields.io/badge/SOC%202%20Type%202-88%25-a5b4fc)](https://github.com/pduggusa/enterprise-extraction-platform/tree/main/compliance)
+[![SOC 2](https://img.shields.io/badge/SOC%202%20Type%202-81%25-a5b4fc)](https://github.com/pduggusa/enterprise-extraction-platform/tree/main/compliance)
 [![GovRAMP](https://img.shields.io/badge/GovRAMP-Foundation%20Ready-a5b4fc)](https://github.com/pduggusa/enterprise-extraction-platform/tree/main/compliance/govramp)
 [![CISA AIS](https://img.shields.io/badge/CISA%20AIS-Data%20Aggregator-4ade80)](https://www.cisa.gov/ais)
 [![SSL Labs](https://img.shields.io/badge/SSL%20Labs-A%2B-4ade80)](https://www.ssllabs.com/ssltest/analyze.html?d=analytics.dugganusa.com)
@@ -24,7 +24,7 @@
 
 **653,342 distinct IOCs. 30x the reach of list-only defence. Deploy in 30 seconds.**
 
-Microsoft, AT&T, Meta, and Zscaler already pull our feed. Now you can too — at the edge.
+Behavioural blocking at the edge, not just a list. Over 16 measured days the shield stopped 1,638 distinct attacking hosts where a blocklist working alone would have stopped 55 — and 81.3% of the hosts that actually attacked were on no blocklist anywhere.
 
 [Get Your Free API Key](https://analytics.dugganusa.com/stix/register) &nbsp;&bull;&nbsp; [STIX Feed](https://analytics.dugganusa.com/api/v1/stix-feed) &nbsp;&bull;&nbsp; [Blog](https://www.dugganusa.com) &nbsp;&bull;&nbsp; [AIPM](https://aipmsec.com)
 
@@ -80,7 +80,7 @@ npx wrangler deploy
 
 Add a route in Cloudflare: `*yourdomain.com/*` → `dugganusa-edge-shield`
 
-**That's it.** Your site is protected by 653,342 distinct IOCs.
+**That's it.** Your site is protected by 653,342 distinct IOCs — plus behavioural blocking, which is the half a list cannot do.
 
 ---
 
@@ -131,7 +131,6 @@ Edge Shield is powered by the same STIX 2.1 feed that Fortune 500 security teams
 |:------:|:-----:|
 | **Distinct IOCs Indexed** | 653,342 (from 1.72M rows) |
 | **Reach vs list-only defence** | 30x (1,638 hosts vs 55) |
-| **Countries** | 46 |
 | **Autonomous Decisions** | 5,764,156 |
 | **Threats Blocked** | 2,038,293 |
 | **Adversary Profiles** | 361 |
@@ -154,6 +153,16 @@ We don't just aggregate — we hunt. 18 documented supply chain attacks (Pattern
 We built [**AIPM (AI Presence Management)**](https://aipmsec.com) — the tool that audits how AI models perceive your brand. Five models. Seven signals. Free.
 
 We used it on ourselves. **0% → 23% ChatGPT visibility in 3 days.** Here's what we did:
+
+> **On our own numbers.** This README previously claimed "275+ consumers in 46 countries" and
+> that Microsoft, AT&T, Meta and Zscaler "already pull our feed." Both were removed in August
+> 2026 because both were wrong. The consumer figure counted one-off curious pulls, not
+> operational consumers, and we retired it publicly. The named-company claim came from our own
+> feed analytics reporting top ASNs without splitting by status code — **97.5% of that traffic
+> was HTTP 403 to UA-less scrapers being correctly blocked.** We were reading our own doormat
+> as a customer list. The indicator count was also a record count, inflated roughly 2.6x
+> against distinct indicators. If you are going to publish an honesty axis on a feed, the
+> README is part of the feed.
 
 1. **robots.txt** — invited AI crawlers explicitly (GPTBot, ClaudeBot, PerplexityBot)
 2. **LD-JSON** — added Organization, Product, FAQ schema across all properties
@@ -277,7 +286,7 @@ scanner. If you serve any of those paths legitimately, disable honeypots or edit
 | Product | What It Does |
 |:--------|:-------------|
 | [**AIPM**](https://aipmsec.com) | Audit how AI models perceive your brand — 0% to 23% ChatGPT visibility in 3 days |
-| [**STIX Feed**](https://analytics.dugganusa.com/stix/pricing) | 653,342 distinct IOCs, Splunk ES + OPNsense compatible, TAXII 2.1 |
+| [**STIX Feed**](https://analytics.dugganusa.com/stix/pricing) | 653,342 distinct IOCs, Splunk ES + OPNsense + MISP, TAXII 2.1 (discovery is open, no key needed) |
 | [**Epstein Files**](https://epstein.dugganusa.com) | 400,750 DOJ documents, full-text searchable, free |
 | [**Butterbot Tank**](https://github.com/pduggusa/butterbot-tank) | Autonomous site survey robot — WiFi heatmaps, NDAA detection, AR HUD |
 | [**Blog**](https://www.dugganusa.com) | 1,655 threat intelligence posts and counting |

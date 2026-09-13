@@ -11,6 +11,13 @@ account_id = "6a88c1dc2bef510ffb0c0393ce5c6248"
 # Honeypot canary routes — intercept scanner probes on all properties
 routes = [
   # Config/credential probes
+  # BEACON SHIELD (2026-08-21) — routed so the edge can absorb our own tracking beacon.
+  # These two paths generated 15,148 uncached origin requests during the GCP Frankfurt
+  # scraper event; embed.js is now edge-cached and track is per-IP rate limited.
+  # See investigations/gcp-frankfurt-scraper-2026-08-21/FINDINGS.md
+  { pattern = "analytics.dugganusa.com/api/v1/blog-tracking/embed.js", zone_name = "dugganusa.com" },
+  { pattern = "analytics.dugganusa.com/api/v1/blog-tracking/track*", zone_name = "dugganusa.com" },
+
   { pattern = "analytics.dugganusa.com/.env*", zone_name = "dugganusa.com" },
   { pattern = "analytics.dugganusa.com/.git/*", zone_name = "dugganusa.com" },
   { pattern = "analytics.dugganusa.com/.aws/*", zone_name = "dugganusa.com" },

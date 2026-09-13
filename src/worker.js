@@ -692,6 +692,73 @@ export default {
     const cf = request.cf || {};
     const ua = request.headers.get('user-agent') || '';
     const ip = request.headers.get('cf-connecting-ip') || '';
+
+    // ============================================================
+    // LAYER -1: BEACON SHIELD — make the beacon the edge's problem
+    // ============================================================
+    // Forensics 2026-08-21 (investigations/gcp-frankfurt-scraper-2026-08-21):
+    // four GCP Frankfurt VMs rendered the blog with headless Chrome. Each rendered
+    // page loaded embed.js from analytics and fired track back at it, and BOTH
+    // reached the origin uncached — 7,559 and 7,589 requests respectively, all
+    // HTTP 200. Cache hit rate across the whole event was 28%: ~259,000 requests
+    // hit the origin against ~102,000 absorbed by the edge. That is what pinned the
+    // app at max scale and starved a rolling deploy of a slot.
+    //
+    // The beacon is the ONE thing on this platform that scales with somebody else's
+    // scraping. It should never touch the origin more than it has to.
+    {
+      const u = new URL(request.url);
+      const path = u.pathname;
+
+      // embed.js is a static file. It generated 7,559 origin requests in one evening;
+      // it should generate approximately one. Served from the edge cache with a long
+      // TTL, keyed without query strings so cache-busting params cannot fragment it.
+      if (path === '/api/v1/blog-tracking/embed.js') {
+        const cacheKey = new Request(`${u.origin}${path}`, { method: 'GET' });
+        const cache = caches.default;
+        const hit = await cache.match(cacheKey);
+        if (hit) {
+          const r = new Response(hit.body, hit);
+          r.headers.set('x-dusa-beacon-cache', 'hit');
+          return r;
+        }
+        const origin = await fetch(request);
+        if (origin.ok) {
+          const cacheable = new Response(origin.body, origin);
+          cacheable.headers.set('Cache-Control', 'public, max-age=3600, s-maxage=86400');
+          cacheable.headers.set('x-dusa-beacon-cache', 'miss');
+          ctx.waitUntil(cache.put(cacheKey, cacheable.clone()));
+          return cacheable;
+        }
+        return origin;
+      }
+
+      // track is a write, so it cannot be cached — it gets a per-IP ceiling instead.
+      // A real visitor produces a handful of beacons per minute; 7,589 in an evening
+      // from two addresses is not a visitor. Counter lives in the edge cache, so it
+      // is per-colo rather than global — deliberately: a distributed scraper is a
+      // different problem, and a per-colo bucket still costs a single-source flood
+      // everything while adding no state, no KV binding and no origin round-trip.
+      if (path.startsWith('/api/v1/blog-tracking/track')) {
+        const BEACON_LIMIT = 60;          // per IP, per minute, per colo
+        const minute = Math.floor(Date.now() / 60000);
+        const counterKey = new Request(`https://beacon-rl.dugganusa.internal/${encodeURIComponent(ip)}/${minute}`);
+        const cache = caches.default;
+        let count = 0;
+        const prev = await cache.match(counterKey);
+        if (prev) { count = parseInt(await prev.text(), 10) || 0; }
+        if (count >= BEACON_LIMIT) {
+          // 429 at the edge. Never reaches the origin, never becomes a page view.
+          return new Response(null, {
+            status: 429,
+            headers: { 'retry-after': '60', 'x-dusa-beacon-rl': 'exceeded', 'cache-control': 'no-store' }
+          });
+        }
+        ctx.waitUntil(cache.put(counterKey, new Response(String(count + 1), {
+          headers: { 'Cache-Control': 'max-age=90' }
+        })));
+      }
+    }
     const asnOrg = cf.asOrganization || '';
     const apiKey = env.DUGGANUSA_API_KEY || '';
 
@@ -788,7 +855,17 @@ export default {
 
     // Pass to origin with enriched headers
     const newRequest = new Request(request, { headers: newHeaders });
-    const response = await fetch(newRequest);
+
+    // LAYER 4.5: ARCHIVE SHIELD — see serveArchive(). Blog posts are the one surface
+    // where the origin fails ~half of all cold reads, so they get cache-first with a
+    // stale-if-error floor. Everything else goes straight through unchanged.
+    const _au = new URL(request.url);
+    const isArchive = request.method === 'GET'
+      && _au.hostname === 'www.dugganusa.com'
+      && _au.pathname.startsWith('/post/');
+    const response = isArchive
+      ? await serveArchive(request, newRequest, ctx)
+      : await fetch(newRequest);
 
     // ============================================================
     // LAYER 5: LD-JSON injection for HTML responses
@@ -807,6 +884,139 @@ export default {
     return response;
   }
 };
+
+
+// ================================================================
+// ARCHIVE SHIELD — keep the corpus readable when the blog origin is not
+// ================================================================
+// Measured 2026-08-22 over eight days of Cloudflare data: cache-MISS requests to
+// www.dugganusa.com return HTTP 504 between 28.0% and 82.5% of the time, EVERY DAY,
+// at any volume. Mean 52.7%. 18 August — an ordinary day, no incident, no traffic
+// event — produced 14,109 gateway timeouts that nobody noticed. During the 21 Aug
+// harvest, 125,101 of 125,101 504s landed on a miss; hit, bypass, dynamic and
+// revalidated responses had a ZERO percent failure rate.
+//
+// So the archive is not slow, it is intermittently absent, and it has been for as
+// long as we have data. That directly attacks the thing we say the blog IS — durable
+// institutional memory you can be pointed back at. A citation into a two-year-old
+// post is a coin flip today.
+//
+// We do not own the blog origin, but www routes through this worker, so the fix
+// lives here:
+//   - serve a fresh cached copy immediately (kills the miss, and the miss is the
+//     only thing that ever fails)
+//   - revalidate in the background once it ages past SWR
+//   - and if the origin 5xxes, serve the stale copy at ANY age rather than hand a
+//     reader a gateway timeout
+//
+// Cached copy is stored PRE-schema-injection so the LD-JSON rewriter still runs on
+// the way out. Two variants are kept, mobile and desktop, because the platform
+// serves different markup to each and one cached variant would be served to both.
+const ARCHIVE_FRESH_MS = 10 * 60 * 1000;        // serve without revalidating
+const ARCHIVE_SWR_MS = 60 * 60 * 1000;          // serve, refresh in background
+const ARCHIVE_MAX_AGE_S = 7 * 24 * 60 * 60;     // emergency copy retained a week
+
+function archiveKey(url, ua) {
+  const variant = /Mobile|Android|iPhone|iPad/i.test(ua || '') ? 'm' : 'd';
+  return new Request(`${url.origin}${url.pathname}?__dusa_v=${variant}`, { method: 'GET' });
+}
+
+// Cookies the blog platform sets on every public post. Verified 2026-08-22 against a
+// live response: `ssr-caching` is the platform's own SSR-cache DIAGNOSTIC string
+// (`cache#desc=miss#varnish=miss_hit#dc#desc=fastly_g`, max-age 20) and
+// `sec-fetch-unsupported` is a feature-detection flag. Neither carries identity,
+// session or auth. Any OTHER cookie is treated as identity and blocks caching, so a
+// future platform change cannot silently turn this into a session-leak.
+const ARCHIVE_SAFE_COOKIES = /^(ssr-caching|sec-fetch-unsupported)=/;
+
+function cookiesAreSafe(response) {
+  // getAll is the only way to see multiple Set-Cookie headers separately.
+  const all = typeof response.headers.getAll === 'function'
+    ? response.headers.getAll('set-cookie')
+    : (response.headers.get('set-cookie') ? [response.headers.get('set-cookie')] : []);
+  return all.every((c) => ARCHIVE_SAFE_COOKIES.test(c.trim()));
+}
+
+async function storeArchive(cache, key, response, ctx) {
+  if (response.status !== 200) return;
+  const ct = response.headers.get('content-type') || '';
+  if (!ct.includes('text/html')) return;
+
+  // A Set-Cookie we do not recognise means the response may be personalised, and
+  // caching it would hand one reader's cookie to every subsequent reader. Refuse.
+  if (!cookiesAreSafe(response)) return;
+
+  const copy = new Response(response.body, response);
+
+  // DELIBERATE OVERRIDE. The origin sends `public, max-age=0, must-revalidate` on
+  // every post, which is why cf-cache-status is BYPASS across the whole corpus and
+  // why every read — including a two-year-old post nobody has touched — goes to an
+  // origin that fails 28-82.5% of the time. We are overriding a platform directive
+  // the platform cannot honour: it asks us to revalidate against a service that
+  // returns 504 for roughly half of cold requests. Freshness is bounded by
+  // ARCHIVE_FRESH_MS/ARCHIVE_SWR_MS above, not by this header.
+  copy.headers.delete('set-cookie');
+  copy.headers.set('Cache-Control', `public, max-age=${ARCHIVE_MAX_AGE_S}`);
+  copy.headers.set('x-dusa-archive-at', String(Date.now()));
+  ctx.waitUntil(cache.put(key, copy));
+}
+
+async function serveArchive(request, originRequest, ctx) {
+  const url = new URL(request.url);
+  const cache = caches.default;
+  const key = archiveKey(url, request.headers.get('user-agent'));
+
+  let hit = null;
+  try { hit = await cache.match(key); } catch (_) { hit = null; }
+  const age = hit ? Date.now() - (parseInt(hit.headers.get('x-dusa-archive-at'), 10) || 0) : Infinity;
+
+  // Fresh enough to serve outright — this is the case that removes the miss.
+  if (hit && age < ARCHIVE_FRESH_MS) {
+    const r = new Response(hit.body, hit);
+    r.headers.set('x-dusa-archive', 'hit');
+    return r;
+  }
+
+  // Aging but usable: serve it now, refresh behind the reader's back.
+  if (hit && age < ARCHIVE_SWR_MS) {
+    ctx.waitUntil((async () => {
+      try {
+        const fresh = await fetch(originRequest);
+        await storeArchive(cache, key, fresh, { waitUntil: (p) => p });
+      } catch (_) { /* origin still sick; the stale copy stands */ }
+    })());
+    const r = new Response(hit.body, hit);
+    r.headers.set('x-dusa-archive', 'swr');
+    return r;
+  }
+
+  // No usable copy — go to origin, and catch it when it fails.
+  let origin;
+  try {
+    origin = await fetch(originRequest);
+  } catch (_) {
+    origin = null;
+  }
+
+  if (origin && origin.status < 500) {
+    const forCache = origin.clone();
+    await storeArchive(cache, key, forCache, ctx);
+    const r = new Response(origin.body, origin);
+    r.headers.set('x-dusa-archive', hit ? 'refreshed' : 'miss');
+    return r;
+  }
+
+  // Origin is down or 5xx. THIS is the 52.7% case. Serve stale at any age.
+  if (hit) {
+    const r = new Response(hit.body, hit);
+    r.headers.set('x-dusa-archive', 'stale-if-error');
+    r.headers.set('x-dusa-origin-status', origin ? String(origin.status) : 'fetch-failed');
+    return r;
+  }
+
+  // Never cached and the origin is failing — nothing we can do but be honest.
+  return origin || new Response('Upstream unavailable', { status: 502 });
+}
 
 // ================================================================
 // LD-JSON SCHEMA — DugganUSA canonical Organization record

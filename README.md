@@ -32,6 +32,10 @@ Behavioural blocking at the edge, not just a list. Over 16 measured days the shi
 
 </div>
 
+## What's New in 2.4.0
+
+**NetScaler ADC / Gateway canaries.** CVE-2026-88771 and CVE-2026-88772 were exploited for weeks before disclosure. Our own honeypots logged 126,873 attack records and not one of them was a NetScaler probe, because nothing we ran looked like a NetScaler. The Worker now answers the paths NetScaler scanners fingerprint first, tags each catch `citrix-netscaler`, and is **off by default on customer zones** (see Privacy). Known limit: CVE-2026-88772 is reached over DTLS (UDP), which an HTTP Worker never sees.
+
 ## What's New in 2.3.0
 
 **This Worker now closes the loop on feed liveness.** When one of our published indicators blocks real traffic at your edge, the Worker reports the hit back to the **feed-efficacy** axis — privacy-preserving (it sends only the indicator we already published, never your visitors or assets). That turns "we have 653,342 distinct IOCs" into "here's proof they fire in the wild."
@@ -264,6 +268,12 @@ a third party. Get a DPA in place or disable the feature before deploying.
 **To disable honeypots entirely**, set `HONEYPOTS_ENABLED = "false"` in your
 `wrangler.toml` vars. IOC blocking is unaffected.
 
+**NetScaler appliance canaries (2.4.0) are OFF on your zones by default.** They
+answer NetScaler Gateway login paths (`/vpn/`, `/logon/LogonPoint/`, `/cgi/login`,
+`/nf/auth/` and similar) with a decoy, which would break a real NetScaler behind
+the same zone. They run by default only on DugganUSA's own zones. Set
+`APPLIANCE_CANARIES = "true"` to opt in; `"false"` turns them off everywhere.
+
 ### Feed hit reporting
 
 If enabled, we receive the **indicator** that matched plus a hash of your API key —
@@ -295,7 +305,7 @@ scanner. If you serve any of those paths legitimately, disable honeypots or edit
 
 <div align="center">
 
-**DugganUSA LLC** — Minneapolis, MN &nbsp;&bull;&nbsp; v2.3.0
+**DugganUSA LLC** — Minneapolis, MN &nbsp;&bull;&nbsp; v2.4.0
 
 Cybersecurity threat intelligence. Built with Claude.
 

@@ -2,6 +2,20 @@
 
 All notable changes to DugganUSA Edge Shield are documented here.
 
+## [2.4.0] - 2026-09-29
+
+### Added
+- **NetScaler ADC / Gateway appliance canaries.** Paths (case-insensitive): `/vpn/`, `/vpns/`, `/logon/LogonPoint/`, `/nf/auth/`, `/gwtest/`, `/Citrix/`, `/epa/scripts/`, `/oauth/idp/` (prefixes) and `/cgi/login`, `/saml/login`, `/menu/ss`, `/menu/neo`, `/menu/stc`, `/vpn/js/rdx/core/lang/rdx_en.json.gz`. Responds with minimal original login markup and an `NSC_TEMP` cookie. Each catch carries `honeypot_meta.product = 'citrix-netscaler'` and a matching tag. Context: CVE-2026-88771/88772 were exploited for weeks before disclosure, and 126,873 edge-honeypot records held zero NetScaler probes.
+- **`APPLIANCE_CANARIES`** var. Default: on only for DugganUSA's own zones (dugganusa.com, aipmsec.com and subdomains), off everywhere else so a customer's real NetScaler is never answered by a decoy. `"true"` opts in, `"false"` disables everywhere. `HONEYPOTS_ENABLED="false"` still disables all canaries.
+- 26 routes on analytics. and security.dugganusa.com. Marketing hosts are already fully routed.
+- `test-appliance-canaries.mjs` (40 cases, including customer hosts, lookalike hosts, real paths and precedence).
+
+### Fixed
+- `getCanary()` called `decodeURIComponent` without a guard, so a malformed escape (`%E0%A4%A`) threw inside the Worker. It now falls back to the raw path.
+
+### Known limit
+- CVE-2026-88772 is reached over DTLS (UDP). An HTTP Worker never sees that traffic; these canaries catch the HTTP fingerprinting that precedes it.
+
 ## [2.3.0] - 2026-06-30
 
 ### Added

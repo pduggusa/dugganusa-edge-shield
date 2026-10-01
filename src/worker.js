@@ -500,9 +500,16 @@ function randomHex(len) {
   return result;
 }
 
+// A malformed escape (%E0%A4%A) makes decodeURIComponent throw, and an uncaught
+// throw here turns a scanner's garbage path into a Worker exception. Fall back to
+// the raw path instead.
+function safeDecode(path) {
+  try { return decodeURIComponent(path); } catch { return path; }
+}
+
 function getCanary(path) {
   // Decode URL encoding (%2e = ., %2f = /) to catch WAF bypass attempts
-  const decoded = decodeURIComponent(path);
+  const decoded = safeDecode(path);
   // Check both raw and decoded paths
   for (const p of [path, decoded]) {
     if (CANARY_PATHS[p]) return CANARY_PATHS[p];
@@ -523,7 +530,67 @@ function getCanary(path) {
   return null;
 }
 
+// ================================================================
+// APPLIANCE CANARIES — NetScaler ADC / Gateway (2026-09-29)
+// ================================================================
+// CVE-2026-88771/88772 were exploited for weeks before disclosure. Across 126,873
+// edge-honeypot records we held 2 Citrix-shaped paths, both generic .env sprays:
+// nothing here looked like a NetScaler, so nobody fingerprinting NetScalers had a
+// reason to touch us. These paths are what NetScaler scanners probe first.
+//
+// SCOPED TO OUR OWN ZONES BY DEFAULT. This Worker also runs on customer
+// infrastructure, and a customer may run a real NetScaler behind the same zone.
+// Answering its login page with a decoy would break their VPN. Customers opt in
+// with APPLIANCE_CANARIES="true"; "false" turns them off everywhere.
+//
+// Known limit: CVE-2026-88772 is reached over DTLS (UDP). An HTTP Worker never
+// sees it. These canaries catch the HTTP fingerprinting that precedes it.
+const APPLIANCE_CANARY_PREFIXES = [
+  '/vpn/', '/vpns/', '/logon/logonpoint/', '/nf/auth/', '/gwtest/',
+  '/citrix/', '/epa/scripts/', '/oauth/idp/',
+];
+const APPLIANCE_CANARY_EXACT = new Set([
+  '/cgi/login', '/saml/login', '/menu/ss', '/menu/neo', '/menu/stc',
+  '/vpn/js/rdx/core/lang/rdx_en.json.gz',
+]);
+const APPLIANCE_OWN_ZONES = ['dugganusa.com', 'aipmsec.com'];
+
+function applianceCanariesEnabled(env, hostname) {
+  const flag = String(env.APPLIANCE_CANARIES ?? '').toLowerCase();
+  if (flag === 'false') return false;
+  if (flag === 'true') return true;
+  const host = String(hostname || '').toLowerCase();
+  return APPLIANCE_OWN_ZONES.some(z => host === z || host.endsWith('.' + z));
+}
+
+function getApplianceCanary(path) {
+  for (const p of [path, safeDecode(path)]) {
+    const lower = p.toLowerCase();
+    const withSlash = lower.endsWith('/') ? lower : lower + '/';
+    if (APPLIANCE_CANARY_EXACT.has(lower) ||
+        APPLIANCE_CANARY_PREFIXES.some(pre => withSlash.startsWith(pre))) {
+      return { type: 'netscaler_scan', fake: 'netscaler', product: 'citrix-netscaler' };
+    }
+  }
+  return null;
+}
+
+// Minimal original markup: enough for a fingerprinting scanner to believe it found
+// a gateway login. No Citrix assets are copied.
+function netscalerResponse() {
+  const body = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>NetScaler Gateway</title></head><body><div id="logonbox"><form action="/cgi/login" method="post" autocomplete="off"><label for="login">User name</label><input type="text" id="login" name="login"><label for="passwd">Password</label><input type="password" id="passwd" name="passwd"><input type="submit" value="Log On"></form></div></body></html>`;
+  return new Response(body, {
+    status: 200,
+    headers: {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Set-Cookie': `NSC_TEMP=xyz${randomHex(24)}; Path=/; Secure; HttpOnly`,
+      'Cache-Control': 'no-store',
+    }
+  });
+}
+
 function honeypotResponse(request, cf, canary) {
+  if (canary.fake === 'netscaler') return netscalerResponse();
   const fakeFn = FAKE_RESPONSES[canary.fake];
   const body = fakeFn ? fakeFn() : '';
   const contentType = ['api', 'admin', 'actuator'].includes(canary.fake) ? 'application/json' :
@@ -571,9 +638,10 @@ async function indexHoneypotHit(env, request, cf, canary) {
       `Method: ${request.method}. City: ${cf.city || '?'}, ${cf.region || '?'}.`,
     timestamp: now,
     name: `Honeypot: ${canary.type}`,
-    tags: ['honeypot', 'edge-shield', 'scanner', canary.type, 'auto-indexed'],
+    tags: ['honeypot', 'edge-shield', 'scanner', canary.type, 'auto-indexed', ...(canary.product ? [canary.product] : [])],
     references: [request.url],
     honeypot_meta: {
+      ...(canary.product ? { product: canary.product } : {}),
       path: new URL(request.url).pathname,
       method: request.method,
       ua: request.headers.get('user-agent') || '',
@@ -813,7 +881,10 @@ export default {
     // Verified crawlers are exempt: a canary returns a convincing fake 200 full of
     // invented shell output or fake API keys, and a search engine would index that
     // against the customer's own domain.
-    const canary = (honeypotsEnabled && !verifiedCrawler) ? getCanary(path) : null;
+    // Existing canaries take precedence, so /vpn/%2eenv still counts as a config probe.
+    const canary = (honeypotsEnabled && !verifiedCrawler)
+      ? (getCanary(path) || (applianceCanariesEnabled(env, new URL(request.url).hostname) ? getApplianceCanary(path) : null))
+      : null;
     if (canary) {
       // Index the attacker's fingerprint into the STIX feed (non-blocking)
       ctx.waitUntil(indexHoneypotHit(env, request, cf, canary));

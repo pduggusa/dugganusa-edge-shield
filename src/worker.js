@@ -19,7 +19,7 @@
 const DUGGANUSA_API = 'https://analytics.dugganusa.com/api/v1';
 const IOC_CACHE_TTL = 300; // 5 minutes
 const IOC_REFRESH_INTERVAL = 3600; // 1 hour full refresh
-const IOC_RETRY_INTERVAL = 300;    // 5 min retry after a FAILED refresh (was: wait the full hour)
+const IOC_RETRY_INTERVAL = 600;    // 10 min retry after a FAILED refresh (was: wait the full hour; 5 min fed the herd)
 // Identify the shield on every subrequest. A UA-less request from Cloudflare's shared
 // Workers egress is indistinguishable from a scraper — which is how the shield's own
 // IOC refresh got 403'd for 96 days (2026-07-01 → 2026-10-05).
@@ -281,7 +281,40 @@ let iocCache = {
   count: 0
 };
 
-async function refreshIOCs(apiKey) {
+// ONE origin pull per data center, not per isolate (2026-10-05). The feed CSV costs the
+// origin ~8-24s to build. Once the shield could actually fetch it again, every isolate in
+// every PoP pulled its own copy (75 pulls / 5 min, 503s + 499s) — a thundering herd against
+// the product. The data-center cache is shared by all isolates there. The key lives on a
+// hostname nobody can request (.invalid), so the cached feed can never be served to a
+// visitor without a key. Any Cache API failure falls back to a direct fetch.
+const FEED_EDGE_CACHE_TTL = 600; // seconds
+async function cachedFeedFetch(url, name, headers) {
+  const key = new Request(`https://edge-shield-feed-cache.invalid/${name}?days=7&min_confidence=80`);
+  let cache = null;
+  try {
+    cache = caches.default;
+    const hit = await cache.match(key);
+    if (hit) return hit;
+  } catch (e) { cache = null; }
+  const res = await fetch(url, { headers });
+  if (!res.ok || !cache) return res;
+  const body = await res.text();
+  const fresh = () => new Response(body, {
+    status: 200,
+    headers: { 'Content-Type': 'text/csv', 'Cache-Control': `max-age=${FEED_EDGE_CACHE_TTL}` }
+  });
+  try { await cache.put(key, fresh()); } catch (e) { /* uncached is still correct */ }
+  return fresh();
+}
+
+// One refresh at a time per isolate: concurrent requests each kicked off their own.
+let refreshInFlight = null;
+function refreshIOCs(apiKey) {
+  if (!refreshInFlight) refreshInFlight = doRefreshIOCs(apiKey).finally(() => { refreshInFlight = null; });
+  return refreshInFlight;
+}
+
+async function doRefreshIOCs(apiKey) {
   const now = Date.now();
   const wait = iocCache.lastFailure > iocCache.lastRefresh ? IOC_RETRY_INTERVAL : IOC_REFRESH_INTERVAL;
   if (now - Math.max(iocCache.lastRefresh, iocCache.lastFailure) < wait * 1000) return;
@@ -289,8 +322,8 @@ async function refreshIOCs(apiKey) {
   try {
     const headers = { 'Authorization': `Bearer ${apiKey}`, 'User-Agent': SHIELD_UA };
     const [ipsRes, domainsRes] = await Promise.all([
-      fetch(`${DUGGANUSA_API}/stix-feed/ips.csv?days=7&min_confidence=80`, { headers }),
-      fetch(`${DUGGANUSA_API}/stix-feed/domains.csv?days=7&min_confidence=80`, { headers })
+      cachedFeedFetch(`${DUGGANUSA_API}/stix-feed/ips.csv?days=7&min_confidence=80`, 'ips', headers),
+      cachedFeedFetch(`${DUGGANUSA_API}/stix-feed/domains.csv?days=7&min_confidence=80`, 'domains', headers)
     ]);
 
     // A failed refresh used to be swallowed silently: the cache stayed EMPTY, LAYER 2

@@ -17,8 +17,7 @@
 // ================================================================
 
 const DUGGANUSA_API = 'https://analytics.dugganusa.com/api/v1';
-const IOC_CACHE_TTL = 300; // 5 minutes
-const IOC_REFRESH_INTERVAL = 3600; // 1 hour full refresh
+// Full refresh interval is the IOC_REFRESH_MINUTES var (default 60), see loadConfig().
 const IOC_RETRY_INTERVAL = 600;    // 10 min retry after a FAILED refresh (was: wait the full hour; 5 min fed the herd)
 // Identify the shield on every subrequest. A UA-less request from Cloudflare's shared
 // Workers egress is indistinguishable from a scraper — which is how the shield's own
@@ -34,6 +33,117 @@ function firstPartyZone(hostname) {
   if (h === 'aipmsec.com' || h.endsWith('.aipmsec.com')) return 'aipmsec.com';
   if (h === 'dugganusa.com' || h.endsWith('.dugganusa.com')) return 'dugganusa.com';
   return null;
+}
+
+// ================================================================
+// POLICY CONFIG — every knob is a [vars] entry in wrangler.toml (2.5.0)
+// ================================================================
+// An ABSENT var falls back to the default below, and the defaults are exactly the
+// values this Worker hard-coded before 2.5.0, so an existing deployment with no
+// [vars] behaves the way it always did. wrangler.example.toml documents each one.
+//
+// A var that is present but unparseable also falls back to its default, and says
+// so once in Workers Logs. A typo must never silently change the security posture.
+const DEFAULT_CONFIG = {
+  mode: 'block',               // SHIELD_MODE: "block" enforces, "observe" logs what it WOULD have done
+  iocBlocking: true,           // IOC_BLOCKING
+  iocMinConfidence: 80,        // IOC_MIN_CONFIDENCE: the customer's dial. 30 = broad, 80 = high precision
+  iocFeedDays: 7,              // IOC_FEED_DAYS: feed lookback window
+  iocRefreshMinutes: 60,       // IOC_REFRESH_MINUTES: full refresh interval (each refresh = 2 API calls)
+  scanner418: true,            // SCANNER_418
+  rlAnon: 100,                 // RL_ANON: req/min per anonymous IP (0 disables)
+  rlAuth: 500,                 // RL_AUTH: req/min per IP presenting an API key (0 disables)
+  feedHitReporting: true,      // FEED_HIT_REPORTING: indicator-only liveness report on a match
+  // SCHEMA_INJECT_HOSTS: hosts that get DugganUSA's own Organization LD-JSON. It is OUR
+  // record, so this is only ever meaningful on our hosts. Customers set it to "".
+  schemaInjectHosts: ['www.dugganusa.com', 'dugganusa.com', 'aipmsec.com'],
+  sensorHosts: [],             // SENSOR_HOSTS: never shielded, see isSensorHost()
+};
+
+function parseBool(raw, dflt, name, warnings) {
+  if (raw === undefined || raw === null || raw === '') return dflt;
+  const s = String(raw).trim().toLowerCase();
+  if (['true', '1', 'yes', 'on'].includes(s)) return true;
+  if (['false', '0', 'no', 'off'].includes(s)) return false;
+  warnings.push(`${name}="${raw}" is not a boolean, using default ${dflt}`);
+  return dflt;
+}
+
+function parseIntRange(raw, dflt, min, max, name, warnings) {
+  if (raw === undefined || raw === null || raw === '') return dflt;
+  const s = String(raw).trim();
+  const n = /^\d+$/.test(s) ? parseInt(s, 10) : NaN;
+  if (!Number.isFinite(n) || n < min || n > max) {
+    warnings.push(`${name}="${raw}" is not an integer in ${min}..${max}, using default ${dflt}`);
+    return dflt;
+  }
+  return n;
+}
+
+// Comma- or whitespace-separated host list. ABSENT → default; "" → explicitly none.
+function parseList(raw, dflt) {
+  if (raw === undefined || raw === null) return dflt;
+  return String(raw).split(/[\s,]+/).map(s => s.trim().toLowerCase()).filter(Boolean);
+}
+
+function loadConfig(env) {
+  const e = env || {};
+  const warnings = [];
+  const d = DEFAULT_CONFIG;
+
+  let mode = d.mode;
+  if (e.SHIELD_MODE !== undefined && e.SHIELD_MODE !== null && e.SHIELD_MODE !== '') {
+    const m = String(e.SHIELD_MODE).trim().toLowerCase();
+    if (m === 'block' || m === 'observe') mode = m;
+    else if (m === 'log-only' || m === 'log') mode = 'observe';
+    else warnings.push(`SHIELD_MODE="${e.SHIELD_MODE}" is not "block" or "observe", using default ${d.mode}`);
+  }
+
+  return {
+    mode,
+    observe: mode === 'observe',
+    iocBlocking: parseBool(e.IOC_BLOCKING, d.iocBlocking, 'IOC_BLOCKING', warnings),
+    iocMinConfidence: parseIntRange(e.IOC_MIN_CONFIDENCE, d.iocMinConfidence, 0, 100, 'IOC_MIN_CONFIDENCE', warnings),
+    iocFeedDays: parseIntRange(e.IOC_FEED_DAYS, d.iocFeedDays, 1, 90, 'IOC_FEED_DAYS', warnings),
+    iocRefreshMinutes: parseIntRange(e.IOC_REFRESH_MINUTES, d.iocRefreshMinutes, 5, 1440, 'IOC_REFRESH_MINUTES', warnings),
+    scanner418: parseBool(e.SCANNER_418, d.scanner418, 'SCANNER_418', warnings),
+    rlAnon: parseIntRange(e.RL_ANON, d.rlAnon, 0, 1000000, 'RL_ANON', warnings),
+    rlAuth: parseIntRange(e.RL_AUTH, d.rlAuth, 0, 1000000, 'RL_AUTH', warnings),
+    feedHitReporting: parseBool(e.FEED_HIT_REPORTING, d.feedHitReporting, 'FEED_HIT_REPORTING', warnings),
+    schemaInjectHosts: parseList(e.SCHEMA_INJECT_HOSTS, d.schemaInjectHosts),
+    sensorHosts: parseList(e.SENSOR_HOSTS, d.sensorHosts),
+    warnings,
+  };
+}
+
+// `env` is the same object for every request an isolate serves, so parse it once.
+const configCache = new WeakMap();
+function getConfig(env) {
+  if (!env || typeof env !== 'object') return loadConfig({});
+  let cfg = configCache.get(env);
+  if (!cfg) {
+    cfg = loadConfig(env);
+    for (const w of cfg.warnings) console.log(`config: ${w}`);
+    configCache.set(env, cfg);
+  }
+  return cfg;
+}
+
+// SENSOR hosts are never shielded. A honeypot, research box or telemetry endpoint
+// exists to see raw traffic: scanners, probes, IOC-listed IPs. A shield in front of
+// it 418s and 403s exactly what it is there to observe. Routing is the first guard
+// (no catch-all route on a sensor); this is the second, for the day someone adds
+// one anyway. Entries are exact hosts or "*.example.com" (subdomains only).
+function isSensorHost(hostname, cfg) {
+  const h = String(hostname || '').toLowerCase();
+  return cfg.sensorHosts.some(s => s.startsWith('*.') ? h.endsWith(s.slice(1)) : h === s);
+}
+
+// Observe mode records every decision it did NOT enforce. Evidence is never
+// discarded just because enforcement is off; that is the whole point of a trial.
+// This lands in the operator's OWN Workers Logs, on their own account.
+function logObserved(would, ip, hostname, path, rayId) {
+  console.log(JSON.stringify({ shield: 'observe', would, ip, host: hostname, path, ray: rayId || null }));
 }
 
 // ================================================================
@@ -288,8 +398,13 @@ let iocCache = {
 // hostname nobody can request (.invalid), so the cached feed can never be served to a
 // visitor without a key. Any Cache API failure falls back to a direct fetch.
 const FEED_EDGE_CACHE_TTL = 600; // seconds
-async function cachedFeedFetch(url, name, headers) {
-  const key = new Request(`https://edge-shield-feed-cache.invalid/${name}?days=7&min_confidence=80`);
+//
+// The key carries the feed query (window + min_confidence) so two configurations
+// never share an entry: a min_confidence=30 deployment must not be served an 80 feed.
+// It also floors the effective refresh at the TTL: IOC_REFRESH_MINUTES below 10 still
+// re-reads the data-center copy, it just does not re-pull the origin.
+async function cachedFeedFetch(url, name, headers, qs) {
+  const key = new Request(`https://edge-shield-feed-cache.invalid/${name}?${qs}`);
   let cache = null;
   try {
     cache = caches.default;
@@ -309,21 +424,22 @@ async function cachedFeedFetch(url, name, headers) {
 
 // One refresh at a time per isolate: concurrent requests each kicked off their own.
 let refreshInFlight = null;
-function refreshIOCs(apiKey) {
-  if (!refreshInFlight) refreshInFlight = doRefreshIOCs(apiKey).finally(() => { refreshInFlight = null; });
+function refreshIOCs(apiKey, cfg = DEFAULT_CONFIG) {
+  if (!refreshInFlight) refreshInFlight = doRefreshIOCs(apiKey, cfg).finally(() => { refreshInFlight = null; });
   return refreshInFlight;
 }
 
-async function doRefreshIOCs(apiKey) {
+async function doRefreshIOCs(apiKey, cfg) {
   const now = Date.now();
-  const wait = iocCache.lastFailure > iocCache.lastRefresh ? IOC_RETRY_INTERVAL : IOC_REFRESH_INTERVAL;
+  const wait = iocCache.lastFailure > iocCache.lastRefresh ? IOC_RETRY_INTERVAL : cfg.iocRefreshMinutes * 60;
   if (now - Math.max(iocCache.lastRefresh, iocCache.lastFailure) < wait * 1000) return;
 
   try {
     const headers = { 'Authorization': `Bearer ${apiKey}`, 'User-Agent': SHIELD_UA };
+    const qs = `days=${cfg.iocFeedDays}&min_confidence=${cfg.iocMinConfidence}`;
     const [ipsRes, domainsRes] = await Promise.all([
-      cachedFeedFetch(`${DUGGANUSA_API}/stix-feed/ips.csv?days=7&min_confidence=80`, 'ips', headers),
-      cachedFeedFetch(`${DUGGANUSA_API}/stix-feed/domains.csv?days=7&min_confidence=80`, 'domains', headers)
+      cachedFeedFetch(`${DUGGANUSA_API}/stix-feed/ips.csv?${qs}`, 'ips', headers, qs),
+      cachedFeedFetch(`${DUGGANUSA_API}/stix-feed/domains.csv?${qs}`, 'domains', headers, qs)
     ]);
 
     // A failed refresh used to be swallowed silently: the cache stayed EMPTY, LAYER 2
@@ -747,7 +863,10 @@ async function indexHoneypotHit(env, request, cf, canary) {
 // direction and a count. No visitor/origin/asset data. The platform drops any
 // victim-side field and reports it back as `stripped`. Fire-and-forget; this
 // NEVER blocks or delays the 403 the visitor receives.
-async function reportFeedHit(env, indicator, hostname, rayId) {
+//
+// `action` is 'blocked', or 'observed' in SHIELD_MODE="observe": the indicator
+// matched real traffic and the shield let it through on purpose. Same contract.
+async function reportFeedHit(env, indicator, hostname, rayId, action = 'blocked') {
   const apiKey = env.DUGGANUSA_API_KEY;
   if (!apiKey || !indicator) return;
   // `zone` only for DugganUSA's own properties (first-party dogfood); null → omitted.
@@ -767,7 +886,7 @@ async function reportFeedHit(env, indicator, hostname, rayId) {
         ...(zone ? { zone } : {}),
         hits: [{
           indicator,
-          action: 'blocked',
+          action,
           direction: 'inbound',
           count: 1,
           ts: Date.now(),
@@ -792,12 +911,18 @@ async function reportFeedHit(env, indicator, hostname, rayId) {
 // geo-routes to one PoP+isolate, so this counter catches it at zero cost.
 // Two-tier so authenticated customers (valid key) get generous headroom.
 // ================================================================
+// Limits are RL_ANON / RL_AUTH vars (defaults 100 and 500: no human or feed customer
+// hits 100/min anonymously; a presented key gets room to burst). 0 disables a tier.
 const RL_WINDOW_MS = 60_000;
-const RL_ANON = 100; // req/min per anonymous IP — no human or feed customer hits this
-const RL_AUTH = 500; // req/min when an API key is presented — lets real customers burst
 const rlBuckets = new Map(); // ip -> { count, windowStart }
-function rateLimited(ip, authed) {
-  if (!ip) return false;
+function rateLimitLimit(authed, cfg) {
+  return authed ? cfg.rlAuth : cfg.rlAnon;
+}
+// Returns null when under the limit, else { limit, first } — `first` is true only on
+// the request that crossed it, so observe mode logs a flood once per window, not per hit.
+function rateLimited(ip, authed, cfg = DEFAULT_CONFIG) {
+  const limit = rateLimitLimit(authed, cfg);
+  if (!ip || !limit) return null;
   const now = Date.now();
   let b = rlBuckets.get(ip);
   if (!b || now - b.windowStart >= RL_WINDOW_MS) { b = { count: 0, windowStart: now }; rlBuckets.set(ip, b); }
@@ -805,10 +930,9 @@ function rateLimited(ip, authed) {
   if (rlBuckets.size > 20000) { // bound memory — evict expired windows opportunistically
     for (const [k, v] of rlBuckets) if (now - v.windowStart >= RL_WINDOW_MS) rlBuckets.delete(k);
   }
-  return b.count > (authed ? RL_AUTH : RL_ANON);
+  return b.count > limit ? { limit, first: b.count === limit + 1 } : null;
 }
-function rateLimitedResponse(ip, authed) {
-  const limit = authed ? RL_AUTH : RL_ANON;
+function rateLimitedResponse(ip, authed, limit) {
   return new Response(JSON.stringify({
     error: 'rate_limited',
     message: `Too many requests — limit ${limit}/min per IP.` + (authed ? '' : ' Register a free API key for higher limits: https://analytics.dugganusa.com/stix/register'),
@@ -825,6 +949,23 @@ export default {
     const cf = request.cf || {};
     const ua = request.headers.get('user-agent') || '';
     const ip = request.headers.get('cf-connecting-ip') || '';
+    const cfg = getConfig(env);
+    const reqUrl = new URL(request.url);
+    const hostname = reqUrl.hostname.toLowerCase();
+    const rayId = request.headers.get('cf-ray');
+
+    // ============================================================
+    // LAYER -2: SENSOR hosts — never shielded, not even partly
+    // ============================================================
+    // Straight to origin, untouched: no 418, no 403, no canary, no rate limit, no
+    // header rewrite. See isSensorHost().
+    if (isSensorHost(hostname, cfg)) {
+      return fetch(request);
+    }
+
+    // What observe mode let through on purpose. Surfaces as X-DugganUSA-Observed on
+    // the response so a live probe can prove the shield saw it (scripts/verify.sh).
+    const observed = [];
 
     // ============================================================
     // LAYER -1: BEACON SHIELD — make the beacon the edge's problem
@@ -896,8 +1037,9 @@ export default {
     const apiKey = env.DUGGANUSA_API_KEY || '';
 
     // Refresh IOC cache in background
-    if (apiKey) {
-      ctx.waitUntil(refreshIOCs(apiKey));
+    // (Skipped entirely when IOC blocking is off: no point spending API calls.)
+    if (apiKey && cfg.iocBlocking) {
+      ctx.waitUntil(refreshIOCs(apiKey, cfg));
     }
 
     // ============================================================
@@ -918,18 +1060,25 @@ export default {
     // ============================================================
     // LAYER 1: Scanner detection — return 418 I'm a Teapot
     // ============================================================
-    if (!verifiedCrawler && detectScanner(ua, asnOrg)) {
-      return scannerResponse(request, cf);
+    if (cfg.scanner418 && !verifiedCrawler && detectScanner(ua, asnOrg)) {
+      if (!cfg.observe) return scannerResponse(request, cf);
+      observed.push('scanner');
+      logObserved('scanner-418', ip, hostname, reqUrl.pathname, rayId);
     }
 
     // ============================================================
     // LAYER 2: IOC blocking — known malicious IPs get 403
     // ============================================================
-    if (!verifiedCrawler && ip && checkIOC(ip)) {
+    if (cfg.iocBlocking && !verifiedCrawler && ip && checkIOC(ip)) {
       // Report the hit to the feed-efficacy (liveness) axis — non-blocking,
-      // privacy-preserving (indicator only, never the visitor/asset).
-      if (apiKey) ctx.waitUntil(reportFeedHit(env, ip, new URL(request.url).hostname, request.headers.get('cf-ray')));
-      return blockedResponse(ip);
+      // privacy-preserving (indicator only, never the visitor/asset). In observe
+      // mode the match is still reported, as 'observed': the evidence is the same.
+      if (apiKey && cfg.feedHitReporting) {
+        ctx.waitUntil(reportFeedHit(env, ip, hostname, rayId, cfg.observe ? 'observed' : 'blocked'));
+      }
+      if (!cfg.observe) return blockedResponse(ip);
+      observed.push('ioc');
+      logObserved('ioc-403', ip, hostname, reqUrl.pathname, rayId);
     }
 
     // ============================================================
@@ -942,7 +1091,9 @@ export default {
     // A customer serving those legitimately needs a way off, and the README now
     // documents this flag, so it has to actually work.
     const honeypotsEnabled = String(env.HONEYPOTS_ENABLED ?? 'true').toLowerCase() !== 'false';
-    const path = new URL(request.url).pathname;
+    // Honeypots are NOT affected by SHIELD_MODE: they are deception, not blocking,
+    // and have their own switch. Observe mode does not turn them off.
+    const path = reqUrl.pathname;
     // Verified crawlers are exempt: a canary returns a convincing fake 200 full of
     // invented shell output or fake API keys, and a search engine would index that
     // against the customer's own domain.
@@ -961,14 +1112,19 @@ export default {
     // LAYER 3.5: Per-IP rate limit — trim availability guard
     // Runs only on origin-bound traffic (scanner/IOC/honeypot already handled
     // their cases above). Bounces a volume flood before it can strain the trim
-    // origin. Anonymous IPs get RL_ANON/min; a presented API key gets RL_AUTH/min
+    // origin. Anonymous IPs get cfg.rlAnon/min; a presented API key gets cfg.rlAuth/min
     // (the origin still validates the key — this only caps request RATE).
     // ============================================================
     // Verified crawlers are exempt. Googlebot legitimately crawls a large site
     // faster than the anonymous cap allows, and rate-limiting it looks to a search
     // engine exactly like an unreliable origin — which costs the customer ranking.
-    const authed = !!(request.headers.get('authorization') || new URL(request.url).searchParams.get('api_key'));
-    if (!verifiedCrawler && rateLimited(ip, authed)) return rateLimitedResponse(ip, authed);
+    const authed = !!(request.headers.get('authorization') || reqUrl.searchParams.get('api_key'));
+    const rl = verifiedCrawler ? null : rateLimited(ip, authed, cfg);
+    if (rl) {
+      if (!cfg.observe) return rateLimitedResponse(ip, authed, rl.limit);
+      observed.push('rate-limit');
+      if (rl.first) logObserved(`rate-limit-429 (>${rl.limit}/min)`, ip, hostname, path, rayId);
+    }
 
     // ============================================================
     // LAYER 4: Geo headers + analytics enrichment
@@ -1008,16 +1164,16 @@ export default {
     // Fixes the AIPM problem where models think DugganUSA is metal fab
     // ============================================================
     const contentType = response.headers.get('content-type') || '';
-    const host = new URL(request.url).hostname;
-    const SCHEMA_INJECT_HOSTS = ['www.dugganusa.com', 'dugganusa.com', 'aipmsec.com'];
+    const host = reqUrl.hostname;
 
-    if (contentType.includes('text/html') && SCHEMA_INJECT_HOSTS.includes(host)) {
-      return new HTMLRewriter()
-        .on('head', new SchemaInjector(host))
-        .transform(response);
-    }
+    const out = (contentType.includes('text/html') && cfg.schemaInjectHosts.includes(hostname))
+      ? new HTMLRewriter().on('head', new SchemaInjector(host)).transform(response)
+      : response;
 
-    return response;
+    if (!observed.length) return out;
+    const tagged = new Response(out.body, out);
+    tagged.headers.set('X-DugganUSA-Observed', observed.join(','));
+    return tagged;
   }
 };
 

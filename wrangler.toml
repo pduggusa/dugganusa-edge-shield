@@ -110,3 +110,30 @@ routes = [
 
 [observability]
 enabled = true
+
+# ------------------------------------------------------------------
+# POLICY — DugganUSA's own settings (customer #1)
+# ------------------------------------------------------------------
+# Every value here equals the Worker's built-in default, so adding this block
+# changed nothing at the edge. It is written out so our posture is readable in one
+# place, the same way a customer's is. Documented in wrangler.example.toml.
+[vars]
+SHIELD_MODE = "block"
+IOC_BLOCKING = "true"
+IOC_MIN_CONFIDENCE = "80"
+IOC_FEED_DAYS = "7"
+IOC_REFRESH_MINUTES = "60"
+SCANNER_418 = "true"
+RL_ANON = "100"
+RL_AUTH = "500"
+HONEYPOTS_ENABLED = "true"
+FEED_HIT_REPORTING = "true"
+SCHEMA_INJECT_HOSTS = "www.dugganusa.com,dugganusa.com,aipmsec.com"
+# APPLIANCE_CANARIES unset: on for our own zones by default, which is what we want.
+#
+# SENSOR_HOSTS deliberately left empty. security.dugganusa.com (the drone) IS a
+# sensor, and it is protected by ROUTING: no catch-all route above, only canary
+# paths. Listing it here would make the Worker pass those canary routes straight to
+# origin too, which turns the drone's canaries off. Routing alone is the right
+# guard for a sensor that also carries deliberate canary routes.
+SENSOR_HOSTS = ""

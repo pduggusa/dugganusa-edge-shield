@@ -95,16 +95,16 @@ routes = [
   # Marketing hosts — full coverage for IOC blocking + LD-JSON injection (LAYER 5)
   { pattern = "www.dugganusa.com/*", zone_name = "dugganusa.com" },
   { pattern = "dugganusa.com/*", zone_name = "dugganusa.com" },
+  # PRODUCT gets protection (2026-10-05): analytics.dugganusa.com is the product API +
+  # STIX feed. Full coverage so IOC blocking, rate limiting and feed-hit counting run on
+  # all of it, not just canary paths. IndexNow key is served by the container (public/).
+  # Same-zone subrequests (the shield's own ips.csv refresh) go to origin, not back here.
+  { pattern = "analytics.dugganusa.com/*", zone_name = "dugganusa.com" },
   { pattern = "aipmsec.com/*", zone_name = "aipmsec.com" },
-  # DRONE (2026-10-05) — full coverage for security.dugganusa.com so LAYER 2 IOC blocking
-  # and feed-hit reporting run on ALL drone traffic, not just the canary paths above.
-  # Precedence: this is more specific than dugganusa-geo-headers' `*dugganusa.com/*`, so
-  # edge-shield takes over the drone from geo-headers. Edge-shield's LAYER 4 sets the
-  # same X-CF-City/Region/Lat/Lon/Timezone/Metro/Postal/ASN-Org headers; what the drone
-  # LOSES is geo-headers' X-CF-Enterprise / X-CF-Campaign-Hit / X-CF-Local tagging and
-  # its IndexNow key file. Drone traffic also becomes subject to LAYER 3.5 (100 req/min
-  # per anonymous IP).
-  { pattern = "security.dugganusa.com/*", zone_name = "dugganusa.com" },
+  # DRONE: deliberately NO catch-all on security.dugganusa.com. The drone is a SENSOR -- it
+  # must see raw background radiation (scanners, probes, IOC-listed IPs). A shield in front
+  # of it 418s/403s exactly the traffic it exists to observe. Only the canary paths above.
+  # (A catch-all was added and rolled back 2026-10-05 for this reason.)
   { pattern = "www.aipmsec.com/*", zone_name = "aipmsec.com" },
 ]
 

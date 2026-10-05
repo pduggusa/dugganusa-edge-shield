@@ -96,6 +96,15 @@ routes = [
   { pattern = "www.dugganusa.com/*", zone_name = "dugganusa.com" },
   { pattern = "dugganusa.com/*", zone_name = "dugganusa.com" },
   { pattern = "aipmsec.com/*", zone_name = "aipmsec.com" },
+  # DRONE (2026-10-05) — full coverage for security.dugganusa.com so LAYER 2 IOC blocking
+  # and feed-hit reporting run on ALL drone traffic, not just the canary paths above.
+  # Precedence: this is more specific than dugganusa-geo-headers' `*dugganusa.com/*`, so
+  # edge-shield takes over the drone from geo-headers. Edge-shield's LAYER 4 sets the
+  # same X-CF-City/Region/Lat/Lon/Timezone/Metro/Postal/ASN-Org headers; what the drone
+  # LOSES is geo-headers' X-CF-Enterprise / X-CF-Campaign-Hit / X-CF-Local tagging and
+  # its IndexNow key file. Drone traffic also becomes subject to LAYER 3.5 (100 req/min
+  # per anonymous IP).
+  { pattern = "security.dugganusa.com/*", zone_name = "dugganusa.com" },
   { pattern = "www.aipmsec.com/*", zone_name = "aipmsec.com" },
 ]
 

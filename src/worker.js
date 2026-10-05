@@ -19,6 +19,22 @@
 const DUGGANUSA_API = 'https://analytics.dugganusa.com/api/v1';
 const IOC_CACHE_TTL = 300; // 5 minutes
 const IOC_REFRESH_INTERVAL = 3600; // 1 hour full refresh
+const IOC_RETRY_INTERVAL = 300;    // 5 min retry after a FAILED refresh (was: wait the full hour)
+// Identify the shield on every subrequest. A UA-less request from Cloudflare's shared
+// Workers egress is indistinguishable from a scraper — which is how the shield's own
+// IOC refresh got 403'd for 96 days (2026-07-01 → 2026-10-05).
+const SHIELD_UA = 'DugganUSA-Edge-Shield/2026.10 (+https://analytics.dugganusa.com/stix/register)';
+
+// DugganUSA's OWN properties. A feed-hit report carries `zone` ONLY for these, so a
+// customer's hostname never leaves their worker (privacy contract). For anyone else
+// running this shield, firstPartyZone() always returns null and nothing is sent.
+function firstPartyZone(hostname) {
+  const h = String(hostname || '').toLowerCase();
+  if (h === 'security.dugganusa.com') return 'security.dugganusa.com';
+  if (h === 'aipmsec.com' || h.endsWith('.aipmsec.com')) return 'aipmsec.com';
+  if (h === 'dugganusa.com' || h.endsWith('.dugganusa.com')) return 'dugganusa.com';
+  return null;
+}
 
 // ================================================================
 // KNOWN SCANNER SIGNATURES
@@ -261,22 +277,28 @@ let iocCache = {
   cidrs6: [], // [{ base:BigInt, mask:BigInt }] — IPv6 CIDR blocks
   domains: new Set(),
   lastRefresh: 0,
+  lastFailure: 0,
   count: 0
 };
 
 async function refreshIOCs(apiKey) {
   const now = Date.now();
-  if (now - iocCache.lastRefresh < IOC_REFRESH_INTERVAL * 1000) return;
+  const wait = iocCache.lastFailure > iocCache.lastRefresh ? IOC_RETRY_INTERVAL : IOC_REFRESH_INTERVAL;
+  if (now - Math.max(iocCache.lastRefresh, iocCache.lastFailure) < wait * 1000) return;
 
   try {
+    const headers = { 'Authorization': `Bearer ${apiKey}`, 'User-Agent': SHIELD_UA };
     const [ipsRes, domainsRes] = await Promise.all([
-      fetch(`${DUGGANUSA_API}/stix-feed/ips.csv?days=7&min_confidence=80`, {
-        headers: { 'Authorization': `Bearer ${apiKey}` }
-      }),
-      fetch(`${DUGGANUSA_API}/stix-feed/domains.csv?days=7&min_confidence=80`, {
-        headers: { 'Authorization': `Bearer ${apiKey}` }
-      })
+      fetch(`${DUGGANUSA_API}/stix-feed/ips.csv?days=7&min_confidence=80`, { headers }),
+      fetch(`${DUGGANUSA_API}/stix-feed/domains.csv?days=7&min_confidence=80`, { headers })
     ]);
+
+    // A failed refresh used to be swallowed silently: the cache stayed EMPTY, LAYER 2
+    // matched nothing, and no feed hit was ever reported. Say so in Workers Logs.
+    if (!ipsRes.ok || !domainsRes.ok) {
+      console.log(`IOC refresh FAILED: ips.csv ${ipsRes.status}, domains.csv ${domainsRes.status} — ` +
+        `IOC blocking runs on ${iocCache.count ? 'a stale' : 'an EMPTY'} cache (${iocCache.count} IOCs)`);
+    }
 
     if (ipsRes.ok) {
       const text = await ipsRes.text();
@@ -304,10 +326,12 @@ async function refreshIOCs(apiKey) {
       iocCache.domains = domains;
     }
 
-    iocCache.lastRefresh = now;
+    if (ipsRes.ok && domainsRes.ok) iocCache.lastRefresh = now;
+    else iocCache.lastFailure = now;
     iocCache.count = iocCache.ips.size + iocCache.cidrs4.length + iocCache.cidrs6.length + iocCache.domains.size;
   } catch (e) {
-    // Silent fail — use stale cache
+    iocCache.lastFailure = now;
+    console.log(`IOC refresh error: ${e.message} — using ${iocCache.count ? 'stale' : 'EMPTY'} cache`);
   }
 }
 
@@ -662,7 +686,8 @@ async function indexHoneypotHit(env, request, cf, canary) {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        'User-Agent': SHIELD_UA
       },
       body: JSON.stringify(ioc)
     });
@@ -689,24 +714,31 @@ async function indexHoneypotHit(env, request, cf, canary) {
 // direction and a count. No visitor/origin/asset data. The platform drops any
 // victim-side field and reports it back as `stripped`. Fire-and-forget; this
 // NEVER blocks or delays the 403 the visitor receives.
-async function reportFeedHit(env, indicator) {
+async function reportFeedHit(env, indicator, hostname, rayId) {
   const apiKey = env.DUGGANUSA_API_KEY;
   if (!apiKey || !indicator) return;
+  // `zone` only for DugganUSA's own properties (first-party dogfood); null → omitted.
+  // `event_id` = the CF ray of the blocked request (the attacker's request, not a
+  // visitor attribute) so each block counts once and a retry never double counts.
+  const zone = firstPartyZone(hostname);
   try {
     const resp = await fetch(`${DUGGANUSA_API}/feed/hit`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        'User-Agent': SHIELD_UA
       },
       body: JSON.stringify({
         consumer_kind: 'edge-shield',
+        ...(zone ? { zone } : {}),
         hits: [{
           indicator,
           action: 'blocked',
           direction: 'inbound',
           count: 1,
-          ts: Date.now()
+          ts: Date.now(),
+          ...(rayId ? { event_id: `cf-ray-${rayId}` } : {})
         }]
       })
     });
@@ -863,7 +895,7 @@ export default {
     if (!verifiedCrawler && ip && checkIOC(ip)) {
       // Report the hit to the feed-efficacy (liveness) axis — non-blocking,
       // privacy-preserving (indicator only, never the visitor/asset).
-      if (apiKey) ctx.waitUntil(reportFeedHit(env, ip));
+      if (apiKey) ctx.waitUntil(reportFeedHit(env, ip, new URL(request.url).hostname, request.headers.get('cf-ray')));
       return blockedResponse(ip);
     }
 

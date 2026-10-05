@@ -1,5 +1,8 @@
 # Troubleshooting Guide
 
+> Every `wrangler` command here takes `-c wrangler.local.toml`. Without it, wrangler reads
+> `wrangler.toml`, which is DugganUSA's own config (our account, our routes), not yours.
+
 ## Common Issues
 
 ### "My corporate users are being blocked"
@@ -12,7 +15,7 @@
 
 1. Check the `X-CF-ASN-Org` header on the blocked request
 2. If it's a SASE proxy, add it to the `SASE_PROXY_ORGS` list in `src/worker.js`
-3. Redeploy: `npx wrangler deploy`
+3. Redeploy: `npx wrangler deploy -c wrangler.local.toml`
 
 **Currently safelisted SASE proxies:**
 - Zscaler
@@ -52,7 +55,7 @@
 1. Verify your key: `curl -H "Authorization: Bearer YOUR_KEY" "https://analytics.dugganusa.com/api/v1/api-keys/usage"`
 2. Check your key has STIX access: product should be `stix` or `both`
 3. If free tier, the cache refreshes once per day. Upgrade for faster refresh.
-4. Check Worker logs: `npx wrangler tail`
+4. Check Worker logs: `npx wrangler tail -c wrangler.local.toml`
 
 ### "Geo headers are empty"
 
@@ -85,7 +88,7 @@ if (blockedCountries.includes(cf.country)) {
 }
 ```
 
-Redeploy: `npx wrangler deploy`
+Redeploy: `npx wrangler deploy -c wrangler.local.toml`
 
 ### "How do I see who's visiting?"
 
@@ -99,7 +102,7 @@ For full visitor analytics with city-level data, see the DugganUSA analytics das
 
 ### "Worker deployment fails"
 
-**Symptom**: `npx wrangler deploy` returns an error.
+**Symptom**: `npx wrangler deploy -c wrangler.local.toml` returns an error.
 
 **Common causes and fixes:**
 
@@ -113,7 +116,7 @@ For full visitor analytics with city-level data, see the DugganUSA analytics das
 ### "How do I test locally?"
 
 ```bash
-npx wrangler dev
+npx wrangler dev -c wrangler.local.toml
 # Opens local dev server at http://localhost:8787
 # Geo data won't be available locally — Cloudflare edge only
 ```

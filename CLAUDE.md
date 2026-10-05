@@ -101,15 +101,17 @@ in the dashboard). **The most specific route wins**, so an existing
 
 1. Send them to **https://analytics.dugganusa.com/stix/register** for a free key.
    The product must include the STIX feed (`stix` or `both`).
-2. Have them run this themselves, and paste the key at wrangler's prompt, not here:
+2. If `wrangler.local.toml` does not exist yet, copy `wrangler.example.toml` to it
+   first (step 5 fills it in). The next command needs the file.
+3. Have them run this themselves, and paste the key at wrangler's prompt, not here:
    `npx wrangler secret put DUGGANUSA_API_KEY -c wrangler.local.toml`
    (It creates the Worker if it doesn't exist yet. That's expected.)
-3. Confirm with `npx wrangler secret list -c wrangler.local.toml`. It shows the name,
+4. Confirm with `npx wrangler secret list -c wrangler.local.toml`. It shows the name,
    never the value.
 
 ### Step 5 — Generate the config, dry run, confirm, deploy
 
-1. Copy `wrangler.example.toml` to `wrangler.local.toml`. Fill in:
+1. Fill in `wrangler.local.toml` (copied from `wrangler.example.toml` in step 4):
    - `routes`: one `{ pattern = "<host>/*", zone_name = "<zone>" }` per **PRODUCT**
      host. No route for any SENSOR host.
    - `account_id` if they have more than one account.

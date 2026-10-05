@@ -32,6 +32,22 @@ Behavioural blocking at the edge, not just a list. Over 16 measured days the shi
 
 </div>
 
+## Set it up with Claude
+
+Clone the repo, open it in [Claude Code](https://claude.com/claude-code), and say **"set this up for me."**
+
+```bash
+git clone https://github.com/pduggusa/dugganusa-edge-shield.git
+cd dugganusa-edge-shield
+claude
+```
+
+Claude follows the playbook in [`CLAUDE.md`](CLAUDE.md), one question at a time with a recommended default for each: which of your hosts to protect and which are sensors that must never be shielded, block or observe-first, your `min_confidence`, honeypots, rate limits and feed-hit reporting. It writes your `wrangler.local.toml`, has you set the API key yourself (never in chat), shows a dry run before deploying, and proves the result with live probes (`scripts/verify.sh`). Every policy knob is a documented `[vars]` entry in [`wrangler.example.toml`](wrangler.example.toml).
+
+## What's New in 2.5.0
+
+**Your security preferences are config, not code.** Block or observe mode, IOC on/off, `min_confidence`, feed window, refresh interval, scanner 418, rate limits, feed-hit reporting, schema hosts and sensor hosts are all `[vars]`. Defaults match 2.4.0, so an existing deployment behaves the same. **Observe mode** blocks nothing and records everything it would have blocked: a Workers Logs line, an `X-DugganUSA-Observed` response header, and an `observed` feed-hit report. Run it for a week before you block. **Sensor hosts** are passed through untouched. The feed is now pulled **once per data center**, not once per isolate.
+
 ## What's New in 2.4.0
 
 **NetScaler ADC / Gateway canaries.** CVE-2026-88771 and CVE-2026-88772 were exploited for weeks before disclosure. Our own honeypots logged 126,873 attack records and not one of them was a NetScaler probe, because nothing we ran looked like a NetScaler. The Worker now answers the paths NetScaler scanners fingerprint first, tags each catch `citrix-netscaler`, and is **off by default on customer zones** (see Privacy). Known limit: CVE-2026-88772 is reached over DTLS (UDP), which an HTTP Worker never sees.
@@ -73,16 +89,19 @@ Zero external lookups. Zero latency added. The intelligence lives in Worker memo
 
 ---
 
-## Quick Start
+## Quick Start (by hand)
 
 ```bash
 git clone https://github.com/pduggusa/dugganusa-edge-shield.git
 cd dugganusa-edge-shield
-npx wrangler secret put DUGGANUSA_API_KEY    # Free: analytics.dugganusa.com/stix/register
-npx wrangler deploy
+cp wrangler.example.toml wrangler.local.toml  # set your routes + [vars]
+npx wrangler secret put DUGGANUSA_API_KEY -c wrangler.local.toml   # Free: analytics.dugganusa.com/stix/register
+npx wrangler deploy --dry-run -c wrangler.local.toml
+npx wrangler deploy -c wrangler.local.toml
+scripts/verify.sh --product www.yourdomain.com --mode observe
 ```
 
-Add a route in Cloudflare: `*yourdomain.com/*` → `dugganusa-edge-shield`
+`wrangler.toml` is DugganUSA's own deployment. Don't deploy it; use your `wrangler.local.toml` (gitignored).
 
 **That's it.** Your site is protected by 653,342 distinct IOCs — plus behavioural blocking, which is the half a list cannot do.
 
@@ -266,7 +285,7 @@ User-Agent plus geolocation is personal data under GDPR, and this is a transfer 
 a third party. Get a DPA in place or disable the feature before deploying.
 
 **To disable honeypots entirely**, set `HONEYPOTS_ENABLED = "false"` in your
-`wrangler.toml` vars. IOC blocking is unaffected.
+`wrangler.local.toml` vars. IOC blocking is unaffected.
 
 **NetScaler appliance canaries (2.4.0) are OFF on your zones by default.** They
 answer NetScaler Gateway login paths (`/vpn/`, `/logon/LogonPoint/`, `/cgi/login`,
@@ -276,8 +295,10 @@ the same zone. They run by default only on DugganUSA's own zones. Set
 
 ### Feed hit reporting
 
-If enabled, we receive the **indicator** that matched plus a hash of your API key —
-never your visitor's identity. One caveat: when a match comes from a **CIDR range**
+Controlled by `FEED_HIT_REPORTING` (on unless you set it to `"false"`; the example
+config ships it off so you decide). If enabled, we receive the **indicator** that
+matched, the action (`blocked`, or `observed` in observe mode), a count and the
+Cloudflare ray ID, plus a hash of your API key — never your visitor's identity. One caveat: when a match comes from a **CIDR range**
 (ASN prefixes, /24 blocks), the reported IP may be an address we never published
 individually. It is still an address that matched a range you chose to block.
 
@@ -305,7 +326,7 @@ scanner. If you serve any of those paths legitimately, disable honeypots or edit
 
 <div align="center">
 
-**DugganUSA LLC** — Minneapolis, MN &nbsp;&bull;&nbsp; v2.4.0
+**DugganUSA LLC** — Minneapolis, MN &nbsp;&bull;&nbsp; v2.5.0
 
 Cybersecurity threat intelligence. Built with Claude.
 

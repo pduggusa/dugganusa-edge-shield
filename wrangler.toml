@@ -100,6 +100,8 @@ routes = [
   # all of it, not just canary paths. IndexNow key is served by the container (public/).
   # Same-zone subrequests (the shield's own ips.csv refresh) go to origin, not back here.
   { pattern = "analytics.dugganusa.com/*", zone_name = "dugganusa.com" },
+  # finops.dugganusa.com (2026-10-05) — Enterprise Metering product: full protection, same as analytics.
+  { pattern = "finops.dugganusa.com/*", zone_name = "dugganusa.com" },
   { pattern = "aipmsec.com/*", zone_name = "aipmsec.com" },
   # DRONE: deliberately NO catch-all on security.dugganusa.com. The drone is a SENSOR -- it
   # must see raw background radiation (scanners, probes, IOC-listed IPs). A shield in front

@@ -2,6 +2,21 @@
 
 All notable changes to DugganUSA Edge Shield are documented here.
 
+## [2.5.0] - 2026-10-05
+
+### Added
+- **Claude-guided onboarding.** `CLAUDE.md` is now a step-by-step playbook: prerequisites, host inventory (PRODUCT / SENSOR / SKIP), security preferences one question at a time with recommended defaults, API key via `wrangler secret put` only, generated config, dry run before deploy, live verification, rollback and the optional WAF IP-list path. `.claude/skills/edge-shield-setup/SKILL.md` surfaces it in Claude Code.
+- **Policy knobs as `[vars]`:** `SHIELD_MODE`, `IOC_BLOCKING`, `IOC_MIN_CONFIDENCE`, `IOC_FEED_DAYS`, `IOC_REFRESH_MINUTES`, `SCANNER_418`, `RL_ANON`, `RL_AUTH`, `FEED_HIT_REPORTING`, `SCHEMA_INJECT_HOSTS`, `SENSOR_HOSTS` (alongside the existing `HONEYPOTS_ENABLED` and `APPLIANCE_CANARIES`). Absent vars keep 2.4.0 behavior. An unparseable value falls back to the default and logs a `config:` warning.
+- **Observe mode** (`SHIELD_MODE = "observe"`). Scanner 418, IOC 403 and rate-limit 429 are not enforced. Each one is logged (`{"shield":"observe","would":...}`), tagged on the response as `X-DugganUSA-Observed`, and IOC matches are still reported to feed-efficacy with `action: 'observed'`. Rate-limit observations log once per window, not per request.
+- **`SENSOR_HOSTS`**: hosts passed straight to origin, untouched, as a second guard behind routing.
+- `wrangler.example.toml`: placeholder routes and every var documented. Customer config lives in `wrangler.local.toml` (gitignored); `wrangler.toml` stays DugganUSA's own deployment, now with an explicit `[vars]` block equal to the defaults.
+- `scripts/verify.sh`: live PASS/FAIL probes for product and sensor hosts, in block or observe mode. Flags when Cloudflare answered before the Worker, and when the prober's own IP matched the feed.
+- `test-config-observe.mjs` (80 cases): config parsing, observe vs block in the real fetch handler, sensor passthrough, and the data-center feed cache.
+
+### Changed
+- The data-center feed cache key now carries the configured `days` and `min_confidence`, so two configurations never share an entry.
+- Removed the unused `IOC_CACHE_TTL` and the `IOC_REFRESH_INTERVAL` constant (now `IOC_REFRESH_MINUTES`).
+
 ## [2.4.0] - 2026-09-29
 
 ### Added

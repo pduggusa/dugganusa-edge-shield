@@ -1,0 +1,109 @@
+# DugganUSA Edge Shield — customer configuration template
+#
+# Copy this to wrangler.local.toml (gitignored), fill in the placeholders, and deploy
+# with:   npx wrangler deploy -c wrangler.local.toml
+#
+# Easiest path: open this repo in Claude Code and say "set this up for me". Claude
+# follows CLAUDE.md, asks your preferences one at a time, and writes this file for you.
+#
+# wrangler.toml in this repo is DugganUSA's own deployment (customer #1). Do not
+# deploy it: its routes are our zones and its account_id is ours.
+
+name = "dugganusa-edge-shield"
+main = "src/worker.js"
+compatibility_date = "2026-03-19"
+
+# Optional. Without it, wrangler uses the account you are logged into
+# (`npx wrangler whoami` shows the ID).
+# account_id = "YOUR_CLOUDFLARE_ACCOUNT_ID"
+
+# Your DugganUSA API key is a SECRET, never a var. Set it with:
+#   npx wrangler secret put DUGGANUSA_API_KEY -c wrangler.local.toml
+# Free key: https://analytics.dugganusa.com/stix/register
+
+# ------------------------------------------------------------------
+# ROUTES — PRODUCT hosts only
+# ------------------------------------------------------------------
+# One catch-all per host you want protected. The zone must be on Cloudflare and the
+# DNS record proxied (orange cloud), or the Worker never sees the traffic.
+#
+# NEVER route a SENSOR host here (honeypot, research box, telemetry endpoint). It
+# must see raw traffic. Also list sensors in SENSOR_HOSTS below as a second guard.
+#
+# Most-specific route wins. If another Worker already has a route on the same host,
+# check which pattern is more specific before assuming this one runs.
+routes = [
+  { pattern = "PRODUCT_HOST_1/*", zone_name = "YOUR_ZONE" },
+  # { pattern = "PRODUCT_HOST_2/*", zone_name = "YOUR_ZONE" },
+]
+
+[observability]
+enabled = true
+
+# ------------------------------------------------------------------
+# POLICY — your security preferences
+# ------------------------------------------------------------------
+# The values below are the RECOMMENDED STARTING POINT for a new deployment (observe
+# first, honeypots and reporting off until you decide). The value in [brackets] is
+# what you get if you delete the line. A value the Worker cannot parse also falls
+# back to the bracket default and logs a "config:" warning in Workers Logs, so a
+# typo never loosens your posture silently.
+[vars]
+
+# "block" enforces. "observe" lets everything through and logs what it WOULD have
+# blocked (Workers Logs line {"shield":"observe",...} plus an X-DugganUSA-Observed
+# response header). Recommended: "observe" for 7 days, read the logs, then "block".
+# Observe covers scanner 418, IOC 403 and rate-limit 429. Honeypots are separate. [block]
+SHIELD_MODE = "observe"
+
+# Block requests from IPs on the DugganUSA feed (403). "false" also stops the feed
+# downloads entirely. [true]
+IOC_BLOCKING = "true"
+
+# YOUR dial, 0-100. Only indicators at or above this confidence are loaded.
+#   30 = broad (more coverage, more false positives)
+#   80 = high precision (what DugganUSA runs on its own edge)   [80]
+IOC_MIN_CONFIDENCE = "80"
+
+# Feed lookback window in days, 1-90. Indicators older than this are not loaded. [7]
+IOC_FEED_DAYS = "7"
+
+# Minutes between full feed refreshes, 5-1440. Each refresh = 2 API calls per
+# isolate, so mind your key's daily quota. [60]
+IOC_REFRESH_MINUTES = "60"
+
+# Answer known scanners (Shodan, Censys, LeakIX, Nuclei...) with HTTP 418. SASE
+# proxies (Zscaler, Netskope, Prisma...) are never treated as scanners. [true]
+SCANNER_418 = "true"
+
+# Per-IP requests per minute. RL_AUTH applies when the request carries an
+# Authorization header or ?api_key=. "0" disables that tier. [100] / [500]
+RL_ANON = "100"
+RL_AUTH = "500"
+
+# Decoy paths (/.env, /wp-login.php, /graphql, /webmail/...) that answer scanners
+# with fake content. PRIVACY: a hit sends the visitor's IP, User-Agent, geo and the
+# request URL to DugganUSA. Disable if any decoy path is a real route on your site,
+# or if you have not cleared that transfer (GDPR). [true]
+HONEYPOTS_ENABLED = "false"
+
+# NetScaler Gateway decoys (/vpn/, /logon/LogonPoint/, /cgi/login...). Leave unset
+# or "false" if you run a real NetScaler behind these hosts. Unset = on only for
+# DugganUSA's own zones, off for yours. [unset]
+# APPLIANCE_CANARIES = "true"
+
+# When a feed indicator matches, report it back to DugganUSA's feed-efficacy axis.
+# PRIVACY CONTRACT: sends ONLY the indicator we published (the attacker IP), the
+# action ("blocked" or "observed"), a count and the Cloudflare ray ID of the matched
+# request. Never your visitor's identity, your hostname, URL, or any asset data.
+# The report is authenticated with your API key, so we know which key sent it. [true]
+FEED_HIT_REPORTING = "false"
+
+# Hosts that get DugganUSA's OWN Organization LD-JSON injected. That record
+# describes DugganUSA, so leave this empty on your site. [DugganUSA's hosts]
+SCHEMA_INJECT_HOSTS = ""
+
+# Hosts that must NEVER be shielded: requests pass straight to origin, untouched.
+# Exact hosts or "*.example.com" (subdomains only), comma-separated. Routing is the
+# first guard (no route on a sensor). This is the second. [none]
+SENSOR_HOSTS = ""

@@ -736,6 +736,20 @@ function applianceCanariesEnabled(env, hostname) {
   return APPLIANCE_OWN_ZONES.some(z => host === z || host.endsWith('.' + z));
 }
 
+// ================================================================
+// APPLIANCE CANARIES — Fortinet FortiGate / FortiOS (2026-10-06)
+// ================================================================
+// Same blind spot, measured: 134,357 edge-honeypot records, zero FortiOS-shaped probes
+// (the four "/.env.fortify" hits are Laravel Fortify .env sprays, not Fortinet). Fortinet
+// has 31 CISA KEV entries and added 8 in each of 2025 and 2026, and we could not time a
+// single one to a first probe. These are the paths FortiGate scanners hit first:
+// SSL-VPN portal + login (/remote/*, incl. the CVE-2018-13379 fgt_lang traversal still
+// sprayed for credential dumps), FortiCloud SSO start (CVE-2026-24858 class), the
+// FortiOS REST API abused by CVE-2022-40684, and the FortiOS 7 admin UI (/ng/).
+// Deliberately NOT bare /login or /api/v2/ — too generic. Same scoping as NetScaler.
+const FORTINET_CANARY_PREFIXES = ['/remote/', '/api/v2/cmdb/', '/api/v2/monitor/', '/ng/'];
+const FORTINET_CANARY_EXACT = new Set(['/remote/login', '/remote/logincheck', '/remote/fgt_lang']);
+
 function getApplianceCanary(path) {
   for (const p of [path, safeDecode(path)]) {
     const lower = p.toLowerCase();
@@ -743,6 +757,10 @@ function getApplianceCanary(path) {
     if (APPLIANCE_CANARY_EXACT.has(lower) ||
         APPLIANCE_CANARY_PREFIXES.some(pre => withSlash.startsWith(pre))) {
       return { type: 'netscaler_scan', fake: 'netscaler', product: 'citrix-netscaler' };
+    }
+    if (FORTINET_CANARY_EXACT.has(lower) ||
+        FORTINET_CANARY_PREFIXES.some(pre => withSlash.startsWith(pre))) {
+      return { type: 'fortinet_scan', fake: 'fortigate', product: 'fortinet-fortigate' };
     }
   }
   return null;
@@ -762,8 +780,23 @@ function netscalerResponse() {
   });
 }
 
+// Minimal original markup: an SSL-VPN login that posts where FortiOS posts. No Fortinet
+// assets are copied. The cookie name is what scanners key on to confirm a FortiGate.
+function fortigateResponse() {
+  const body = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Please Login</title></head><body><div class="login"><form action="/remote/logincheck" method="post" autocomplete="off"><label for="username">Username</label><input type="text" id="username" name="username"><label for="credential">Password</label><input type="password" id="credential" name="credential"><input type="hidden" name="realm" value=""><button type="submit">Login</button></form></div></body></html>`;
+  return new Response(body, {
+    status: 200,
+    headers: {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Set-Cookie': `SVPNCOOKIE=; path=/; secure; httponly`,
+      'Cache-Control': 'no-store',
+    }
+  });
+}
+
 function honeypotResponse(request, cf, canary) {
   if (canary.fake === 'netscaler') return netscalerResponse();
+  if (canary.fake === 'fortigate') return fortigateResponse();
   const fakeFn = FAKE_RESPONSES[canary.fake];
   const body = fakeFn ? fakeFn() : '';
   const contentType = ['api', 'admin', 'actuator'].includes(canary.fake) ? 'application/json' :

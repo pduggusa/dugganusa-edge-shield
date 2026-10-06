@@ -2,6 +2,10 @@
 
 All notable changes to DugganUSA Edge Shield are documented here.
 
+## 2.6.0 — 2026-10-06
+
+- **Fortinet FortiGate appliance canaries.** SSL-VPN (`/remote/*`, incl. the CVE-2018-13379 `fgt_lang` traversal), FortiCloud SSO start, FortiOS REST API (`/api/v2/cmdb/`, `/api/v2/monitor/`) and the `/ng/` admin UI answer with a minimal original FortiGate login. Same scoping as NetScaler: own zones by default, `APPLIANCE_CANARIES` opt-in/out for customers. Tagged `fortinet_scan` / `fortinet-fortigate`. Measured gap it closes: 134,357 edge-honeypot records, zero FortiOS-shaped probes.
+
 ## [2.5.0] - 2026-10-05
 
 ### Added

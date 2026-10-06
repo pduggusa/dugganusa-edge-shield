@@ -20,8 +20,8 @@ const slice = (from, to) => {
 };
 const code = slice('const CANARY_PATHS', 'function honeypotResponse');
 const mod = await import('data:text/javascript,' + encodeURIComponent(
-  code + '\nexport { getCanary, getApplianceCanary, applianceCanariesEnabled, netscalerResponse, safeDecode };'));
-const { getCanary, getApplianceCanary, applianceCanariesEnabled, netscalerResponse } = mod;
+  code + '\nexport { getCanary, getApplianceCanary, applianceCanariesEnabled, netscalerResponse, fortigateResponse, safeDecode };'));
+const { getCanary, getApplianceCanary, applianceCanariesEnabled, netscalerResponse, fortigateResponse } = mod;
 
 // The same precedence the fetch handler uses.
 const pick = (env, host, path) =>
@@ -74,6 +74,26 @@ check('response 200', r.status, 200);
 check('NSC_TEMP cookie set', /^NSC_TEMP=/.test(r.headers.get('set-cookie') || ''), true);
 check('no nginx misdirection header', r.headers.get('server'), null);
 check('title says NetScaler Gateway', (await r.text()).includes('<title>NetScaler Gateway</title>'), true);
+
+// ---- Fortinet FortiGate (2026-10-06) ----
+for (const p of ['/remote/login', '/remote/login?lang=en', '/remote/logincheck', '/remote/fgt_lang',
+                 '/remote/fgt_lang?lang=/../../../..//////////dev/cmdb/sslvpn_websession', '/remote/saml/start',
+                 '/remote/info', '/api/v2/cmdb/system/admin', '/api/v2/monitor/system/status', '/ng/', '/REMOTE/LOGIN', '/remote',
+                 '/%72emote/login']) {
+  check(`own zone traps FortiGate ${p}`, kind(pick({}, 'analytics.dugganusa.com', p.split('?')[0])), 'fortinet_scan');
+}
+check('customer FortiGate NOT trapped by default', kind(pick({}, 'vpn.customer.example', '/remote/login')), null);
+check('customer opt-in traps FortiGate', kind(pick({ APPLIANCE_CANARIES: 'true' }, 'vpn.customer.example', '/remote/login')), 'fortinet_scan');
+check('"false" disables FortiGate on own zone', kind(pick({ APPLIANCE_CANARIES: 'false' }, 'www.dugganusa.com', '/remote/login')), null);
+for (const p of ['/login', '/remotes/login', '/api/v2/', '/api/v2/stix', '/api/v1/finops/report', '/ngx', '/.env.fortify']) {
+  check(`not a FortiGate trap: ${p}`, kind(pick({}, 'www.dugganusa.com', p)) === 'fortinet_scan', false);
+}
+check('FortiGate product tag', getApplianceCanary('/remote/login').product, 'fortinet-fortigate');
+check('NetScaler unaffected', kind(getApplianceCanary('/vpn/index.html')), 'netscaler_scan');
+const fr = fortigateResponse();
+check('FortiGate response 200', fr.status, 200);
+check('SVPNCOOKIE set', /^SVPNCOOKIE=/.test(fr.headers.get('set-cookie') || ''), true);
+check('form posts to /remote/logincheck', (await fr.text()).includes('action="/remote/logincheck"'), true);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

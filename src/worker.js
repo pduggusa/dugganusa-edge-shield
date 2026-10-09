@@ -612,6 +612,15 @@ const CANARY_PATHS = {
   '/dump.sql':            { type: 'data_theft',      fake: 'sql' },
   '/db.sqlite':           { type: 'data_theft',      fake: 'sql' },
 
+  // ILIAS LMS — CVE-2026-80428 unauthenticated PHP object injection via ltiauth.php.
+  // Public PoCs since 2026-09-03 (a weaponized one 2026-10-09); we run no ILIAS, so any
+  // hit is targeting. Paths are the PoCs' own candidate list. Added 2026-10-09 (2.7.0).
+  '/ltiauth.php':                { type: 'ilias_scan', fake: 'admin' },
+  '/LTI/ltiauth.php':            { type: 'ilias_scan', fake: 'admin' },
+  '/lti/ltiauth.php':            { type: 'ilias_scan', fake: 'admin' },
+  '/shibboleth/ltiauth.php':     { type: 'ilias_scan', fake: 'admin' },
+  '/ilias/':                     { type: 'ilias_scan', fake: 'admin' },
+
   // Admin panels we don't have
   '/phpmyadmin/':         { type: 'admin_scan',      fake: 'admin' },
   '/adminer.php':         { type: 'admin_scan',      fake: 'admin' },
@@ -994,6 +1003,17 @@ export default {
     // header rewrite. See isSensorHost().
     if (isSensorHost(hostname, cfg)) {
       return fetch(request);
+    }
+
+    // MTA-STS policy (RFC 8461) for dugganusa.com mail. Served by the shield so the
+    // policy host needs no origin. mode: testing — receivers report via TLS-RPT but
+    // never refuse delivery; flip to enforce after a clean reporting window. 2026-10-09.
+    if (hostname === 'mta-sts.dugganusa.com') {
+      if (reqUrl.pathname === '/.well-known/mta-sts.txt') {
+        return new Response('version: STSv1\r\nmode: testing\r\nmx: dugganusa-com.mail.protection.outlook.com\r\nmax_age: 604800\r\n',
+          { headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'max-age=3600' } });
+      }
+      return new Response('Not found', { status: 404 });
     }
 
     // What observe mode let through on purpose. Surfaces as X-DugganUSA-Observed on

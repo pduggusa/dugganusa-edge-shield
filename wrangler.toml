@@ -94,6 +94,7 @@ routes = [
   { pattern = "security.dugganusa.com/menu/stc", zone_name = "dugganusa.com" },
   # Marketing hosts — full coverage for IOC blocking + LD-JSON injection (LAYER 5)
   { pattern = "www.dugganusa.com/*", zone_name = "dugganusa.com" },
+  { pattern = "mta-sts.dugganusa.com/*", zone_name = "dugganusa.com" },
   { pattern = "dugganusa.com/*", zone_name = "dugganusa.com" },
   # PRODUCT gets protection (2026-10-05): analytics.dugganusa.com is the product API +
   # STIX feed. Full coverage so IOC blocking, rate limiting and feed-hit counting run on

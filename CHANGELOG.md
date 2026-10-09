@@ -2,6 +2,11 @@
 
 All notable changes to DugganUSA Edge Shield are documented here.
 
+## 2.7.0 — 2026-10-09
+
+- **ILIAS canaries (CVE-2026-80428).** `/ltiauth.php` and the PoCs' alternate locations (`/LTI/`, `/lti/`, `/shibboleth/`, `/ilias/`) answer as a decoy and are tagged `ilias_scan`. Public PoCs since 2026-09-03; before this, our edge had no way to see the probes.
+- **MTA-STS policy host.** `mta-sts.dugganusa.com/.well-known/mta-sts.txt` is served by the worker (`mode: testing`, M365 MX). Pairs with the `_mta-sts` and `_smtp._tls` TXT records.
+
 ## 2.6.0 — 2026-10-06
 
 - **Fortinet FortiGate appliance canaries.** SSL-VPN (`/remote/*`, incl. the CVE-2018-13379 `fgt_lang` traversal), FortiCloud SSO start, FortiOS REST API (`/api/v2/cmdb/`, `/api/v2/monitor/`) and the `/ng/` admin UI answer with a minimal original FortiGate login. Same scoping as NetScaler: own zones by default, `APPLIANCE_CANARIES` opt-in/out for customers. Tagged `fortinet_scan` / `fortinet-fortigate`. Measured gap it closes: 134,357 edge-honeypot records, zero FortiOS-shaped probes.

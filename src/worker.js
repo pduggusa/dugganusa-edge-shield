@@ -759,7 +759,22 @@ function applianceCanariesEnabled(env, hostname) {
 const FORTINET_CANARY_PREFIXES = ['/remote/', '/api/v2/cmdb/', '/api/v2/monitor/', '/ng/'];
 const FORTINET_CANARY_EXACT = new Set(['/remote/login', '/remote/logincheck', '/remote/fgt_lang']);
 
+// ================================================================
+// APPLIANCE CANARIES — Oracle PeopleSoft (2026-10-12, 2.8.0)
+// ================================================================
+// ShinyHunters (GTIG: UNC6240) is mass-exploiting CVE-2026-35273 in the PeopleSoft
+// Environment Management Hub, and since September dodges WAF rules by percent-encoding
+// the path (/%50SEMHUB/ — WebLogic decodes it, path-literal rules miss it). ttp-check
+// 2026-10-12: 22,348 blocks + 51,071 canary hits since 09-01, zero PeopleSoft-shaped —
+// we run no PeopleSoft, so that zero was blindness. PSEMHUB is the exploited endpoint;
+// PSIGW (Integration Gateway) and the /psp/ /psc/ portal servlets are what PeopleSoft
+// fingerprinting hits first. All PeopleSoft-specific — nothing generic.
+const PEOPLESOFT_CANARY_PREFIXES = ['/psemhub/', '/psigw/', '/psp/', '/psc/'];
+
 function getApplianceCanary(path) {
+  // ENCODED-PATH MARKER: a hit whose RAW path differs from its decoded form is the
+  // WAF-bypass variant, which is worth knowing separately from a plain probe.
+  const encoded = safeDecode(path) !== path;
   for (const p of [path, safeDecode(path)]) {
     const lower = p.toLowerCase();
     const withSlash = lower.endsWith('/') ? lower : lower + '/';
@@ -771,8 +786,25 @@ function getApplianceCanary(path) {
         FORTINET_CANARY_PREFIXES.some(pre => withSlash.startsWith(pre))) {
       return { type: 'fortinet_scan', fake: 'fortigate', product: 'fortinet-fortigate' };
     }
+    if (PEOPLESOFT_CANARY_PREFIXES.some(pre => withSlash.startsWith(pre))) {
+      return { type: 'peoplesoft_scan', fake: 'peoplesoft', product: 'oracle-peoplesoft', ...(encoded ? { encoded_path: true } : {}) };
+    }
   }
   return null;
+}
+
+// Minimal original markup: a PeopleSoft-style sign-in that posts where PeopleSoft posts.
+// No Oracle assets are copied. PS_LOGINLIST / PS_TOKEN are what fingerprinters key on.
+function peoplesoftResponse() {
+  const body = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Oracle PeopleSoft Sign-in</title></head><body><form action="/psp/ps/?cmd=login&languageCd=ENG" method="post" name="login" autocomplete="off"><label for="userid">User ID</label><input type="text" id="userid" name="userid"><label for="pwd">Password</label><input type="password" id="pwd" name="pwd"><input type="hidden" name="timezoneOffset" value="0"><input type="submit" name="Submit" value="Sign In"></form></body></html>`;
+  return new Response(body, {
+    status: 200,
+    headers: {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Set-Cookie': `PS_LOGINLIST=; Path=/; Secure; HttpOnly`,
+      'Cache-Control': 'no-store',
+    }
+  });
 }
 
 // Minimal original markup: enough for a fingerprinting scanner to believe it found
@@ -806,6 +838,7 @@ function fortigateResponse() {
 function honeypotResponse(request, cf, canary) {
   if (canary.fake === 'netscaler') return netscalerResponse();
   if (canary.fake === 'fortigate') return fortigateResponse();
+  if (canary.fake === 'peoplesoft') return peoplesoftResponse();
   const fakeFn = FAKE_RESPONSES[canary.fake];
   const body = fakeFn ? fakeFn() : '';
   const contentType = ['api', 'admin', 'actuator'].includes(canary.fake) ? 'application/json' :
@@ -857,6 +890,7 @@ async function indexHoneypotHit(env, request, cf, canary) {
     references: [request.url],
     honeypot_meta: {
       ...(canary.product ? { product: canary.product } : {}),
+      ...(canary.encoded_path ? { encoded_path: true } : {}),
       path: new URL(request.url).pathname,
       method: request.method,
       ua: request.headers.get('user-agent') || '',

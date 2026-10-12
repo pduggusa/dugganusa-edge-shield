@@ -2,6 +2,10 @@
 
 All notable changes to DugganUSA Edge Shield are documented here.
 
+## 2.8.0 — 2026-10-12
+
+- **Oracle PeopleSoft canaries.** `/PSEMHUB/` (the CVE-2026-35273 Environment Management Hub endpoint ShinyHunters / UNC6240 is mass-exploiting), `/PSIGW/`, `/psp/` and `/psc/` answer with a minimal original PeopleSoft sign-in. Matching runs on the raw and the decoded path, so the WAF-bypass spelling `/%50SEMHUB/` is caught too, and such hits carry `encoded_path: true` so the bypass variant is measurable on its own. Tagged `peoplesoft_scan` / `oracle-peoplesoft`. Measured gap it closes: 22,348 edge blocks and 51,071 canary hits since 2026-09-01 with zero PeopleSoft-shaped probes, because we run no PeopleSoft.
+
 ## 2.7.0 — 2026-10-09
 
 - **ILIAS canaries (CVE-2026-80428).** `/ltiauth.php` and the PoCs' alternate locations (`/LTI/`, `/lti/`, `/shibboleth/`, `/ilias/`) answer as a decoy and are tagged `ilias_scan`. Public PoCs since 2026-09-03; before this, our edge had no way to see the probes.

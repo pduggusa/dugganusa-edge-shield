@@ -784,6 +784,21 @@ const PEOPLESOFT_CANARY_PREFIXES = ['/psemhub/', '/psigw/', '/psp/', '/psc/'];
 const SHAREPOINT_CANARY_PREFIXES = ['/_layouts/', '/_vti_bin/', '/_vti_pvt/', '/_windows/default.aspx/'];
 const SHAREPOINT_EXPLOIT_MARKERS = ['toolpane.aspx', 'spinstall0.aspx', 'signout.aspx'];
 
+// ================================================================
+// APPLIANCE CANARIES — Ivanti Connect Secure / Pulse Secure (2026-10-13, 2.10.0)
+// ================================================================
+// CISA added CVE-2026-104935 (Connect Secure auth bypass -> unauthenticated command
+// execution) to KEV on Patch Tuesday with a 3-day deadline; Ivanti holds 36 KEV entries and
+// Connect Secure has been a repeat target since Pulse Secure (2019-2021, 2024, 2025, 2026).
+// ttp-check 2026-10-13: 2,941,882 blocks + 139,334 canary docs since 01-01, ZERO
+// dana-na/dana-ws-shaped — we run no Ivanti, so that zero was blindness, not quiet.
+// /dana-na/ (login, welcome.cgi, SAML) and /dana-ws/ /dana-cached/ /dana/ are what Connect
+// Secure fingerprinting hits first.
+// NOT /api/v1/totp/ or /api/v1/configuration/ (the CVE-2023-46805 / CVE-2024-21887 chain):
+// analytics serves our own /api/v1/ on these zones, so a canary there would hijack the real API.
+const IVANTI_CANARY_PREFIXES = ['/dana-na/', '/dana-ws/', '/dana-cached/', '/dana/'];
+const IVANTI_EXPLOIT_MARKERS = ['/../', '%2e%2e', 'license/keys-status', 'totp/user-backup-code'];
+
 function getApplianceCanary(path) {
   // ENCODED-PATH MARKER: a hit whose RAW path differs from its decoded form is the
   // WAF-bypass variant, which is worth knowing separately from a plain probe.
@@ -801,6 +816,11 @@ function getApplianceCanary(path) {
     }
     if (PEOPLESOFT_CANARY_PREFIXES.some(pre => withSlash.startsWith(pre))) {
       return { type: 'peoplesoft_scan', fake: 'peoplesoft', product: 'oracle-peoplesoft', ...(encoded ? { encoded_path: true } : {}) };
+    }
+    if (IVANTI_CANARY_PREFIXES.some(pre => withSlash.startsWith(pre))) {
+      const exploit = IVANTI_EXPLOIT_MARKERS.some(m => path.toLowerCase().includes(m) || lower.includes(m));
+      return { type: 'ivanti_scan', fake: 'ivanti', product: 'ivanti-connect-secure',
+        ...(exploit ? { exploit_path: true } : {}), ...(encoded ? { encoded_path: true } : {}) };
     }
     if (SHAREPOINT_CANARY_PREFIXES.some(pre => withSlash.startsWith(pre))) {
       const exploit = SHAREPOINT_EXPLOIT_MARKERS.some(m => lower.includes(m));
@@ -847,7 +867,9 @@ function fortigateResponse() {
     status: 200,
     headers: {
       'Content-Type': 'text/html; charset=utf-8',
-      'Set-Cookie': `PS_LOGINLIST=; path=/; secure; httponly`, // was SVPNCOOKIE (Fortinet's), copy-paste bug fixed 2.9.0
+      // SVPNCOOKIE is FortiOS's. 2.9.0 overwrote it with PeopleSoft's PS_LOGINLIST while fixing the
+      // PeopleSoft decoy (the bug was in peoplesoftResponse, not here); restored 2.10.0.
+      'Set-Cookie': `SVPNCOOKIE=; path=/; secure; httponly`,
       'Cache-Control': 'no-store',
     }
   });
@@ -868,11 +890,26 @@ function sharepointResponse() {
   });
 }
 
+// Minimal original markup: a Connect Secure-style sign-in that posts where it posts. No Ivanti
+// assets are copied. DSSignInURL / DSID are the cookies Connect Secure fingerprinters key on.
+function ivantiResponse() {
+  const body = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Ivanti Connect Secure</title></head><body><form name="frmLogin" action="/dana-na/auth/url_default/login.cgi" method="post" autocomplete="off"><input type="hidden" name="tz_offset" value=""><input type="hidden" name="realm" value="Users"><label for="username">Username</label><input type="text" id="username" name="username"><label for="password">Password</label><input type="password" id="password" name="password"><input type="submit" name="btnSubmit" value="Sign In"></form></body></html>`;
+  return new Response(body, {
+    status: 200,
+    headers: {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Set-Cookie': `DSSignInURL=/; path=/; secure; httponly`,
+      'Cache-Control': 'no-store',
+    }
+  });
+}
+
 function honeypotResponse(request, cf, canary) {
   if (canary.fake === 'netscaler') return netscalerResponse();
   if (canary.fake === 'fortigate') return fortigateResponse();
   if (canary.fake === 'peoplesoft') return peoplesoftResponse();
   if (canary.fake === 'sharepoint') return sharepointResponse();
+  if (canary.fake === 'ivanti') return ivantiResponse();
   const fakeFn = FAKE_RESPONSES[canary.fake];
   const body = fakeFn ? fakeFn() : '';
   const contentType = ['api', 'admin', 'actuator'].includes(canary.fake) ? 'application/json' :

@@ -2,6 +2,11 @@
 
 All notable changes to DugganUSA Edge Shield are documented here.
 
+## 2.10.0 — 2026-10-13
+
+- **Ivanti Connect Secure canaries.** `/dana-na/`, `/dana-ws/`, `/dana-cached/` and `/dana/` answer with a minimal original Connect Secure sign-in (`DSSignInURL` cookie). Tagged `ivanti_scan` / `ivanti-connect-secure`. Traversal and the CVE-2023-46805 / CVE-2024-21887 endpoints inside those prefixes carry `exploit_path: true`, and encoded spellings carry `encoded_path: true`. `/api/v1/totp/` and `/api/v1/configuration/` are deliberately NOT trapped, because our own API lives under `/api/v1/`. Closes a measured gap: CVE-2026-104935 entered CISA KEV on 2026-10-13 with a 3-day deadline, and the edge had 0 Connect Secure-shaped probes in 2,941,882 blocks and 139,334 canary docs since 2026-01-01, because we run no Ivanti. Own zones only by default (`APPLIANCE_CANARIES`).
+- **Fix: FortiGate decoy cookie.** 2.9.0 replaced the FortiGate decoy's `SVPNCOOKIE` with PeopleSoft's `PS_LOGINLIST`; the test that would have caught it was failing at release. `SVPNCOOKIE` is restored.
+
 ## 2.8.0 — 2026-10-12
 
 - **Oracle PeopleSoft canaries.** `/PSEMHUB/` (the CVE-2026-35273 Environment Management Hub endpoint ShinyHunters / UNC6240 is mass-exploiting), `/PSIGW/`, `/psp/` and `/psc/` answer with a minimal original PeopleSoft sign-in. Matching runs on the raw and the decoded path, so the WAF-bypass spelling `/%50SEMHUB/` is caught too, and such hits carry `encoded_path: true` so the bypass variant is measurable on its own. Tagged `peoplesoft_scan` / `oracle-peoplesoft`. Measured gap it closes: 22,348 edge blocks and 51,071 canary hits since 2026-09-01 with zero PeopleSoft-shaped probes, because we run no PeopleSoft.

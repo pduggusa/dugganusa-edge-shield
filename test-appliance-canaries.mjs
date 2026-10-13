@@ -20,8 +20,8 @@ const slice = (from, to) => {
 };
 const code = slice('const CANARY_PATHS', 'function honeypotResponse');
 const mod = await import('data:text/javascript,' + encodeURIComponent(
-  code + '\nexport { getCanary, getApplianceCanary, applianceCanariesEnabled, netscalerResponse, fortigateResponse, safeDecode };'));
-const { getCanary, getApplianceCanary, applianceCanariesEnabled, netscalerResponse, fortigateResponse } = mod;
+  code + '\nexport { getCanary, getApplianceCanary, applianceCanariesEnabled, netscalerResponse, fortigateResponse, ivantiResponse, safeDecode };'));
+const { getCanary, getApplianceCanary, applianceCanariesEnabled, netscalerResponse, fortigateResponse, ivantiResponse } = mod;
 
 // The same precedence the fetch handler uses.
 const pick = (env, host, path) =>
@@ -94,6 +94,24 @@ const fr = fortigateResponse();
 check('FortiGate response 200', fr.status, 200);
 check('SVPNCOOKIE set', /^SVPNCOOKIE=/.test(fr.headers.get('set-cookie') || ''), true);
 check('form posts to /remote/logincheck', (await fr.text()).includes('action="/remote/logincheck"'), true);
+
+// Ivanti Connect Secure (2.10.0)
+for (const p of ['/dana-na/auth/url_default/welcome.cgi', '/dana-ws/metadata', '/dana-cached/hc/HostCheckerInstaller.osx', '/dana/home/index.cgi', '/DANA-NA/auth/saml-sso.cgi', '/dana']) {
+  check(`Ivanti trap: ${p}`, kind(pick({}, 'www.dugganusa.com', p)), 'ivanti_scan');
+}
+check('Ivanti product tag', getApplianceCanary('/dana-na/').product, 'ivanti-connect-secure');
+check('Ivanti exploit marker on traversal', getApplianceCanary('/dana-na/../dana/html5acc/guacamole/../../../../../../etc/passwd').exploit_path, true);
+check('Ivanti encoded-path marker', getApplianceCanary('/%64ana-na/auth/url_default/welcome.cgi').encoded_path, true);
+check('plain Ivanti probe carries no exploit marker', getApplianceCanary('/dana-na/auth/url_default/welcome.cgi').exploit_path, undefined);
+for (const p of ['/api/v1/totp/user-backup-code', '/api/v1/configuration/users', '/api/v1/license/keys-status', '/api/v1/search/stats', '/danawhite', '/post/dana-na-explained']) {
+  check(`not an Ivanti trap: ${p}`, kind(pick({}, 'www.dugganusa.com', p)) === 'ivanti_scan', false);
+}
+check('customer Ivanti NOT trapped by default', kind(pick({}, 'vpn.customer.example', '/dana-na/')), null);
+check('customer opt-in traps Ivanti', kind(pick({ APPLIANCE_CANARIES: 'true' }, 'vpn.customer.example', '/dana-na/')), 'ivanti_scan');
+const ir = ivantiResponse();
+check('Ivanti response 200', ir.status, 200);
+check('DSSignInURL set', /^DSSignInURL=/.test(ir.headers.get('set-cookie') || ''), true);
+check('form posts to login.cgi', (await ir.text()).includes('action="/dana-na/auth/url_default/login.cgi"'), true);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

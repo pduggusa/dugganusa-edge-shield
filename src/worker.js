@@ -1,7 +1,7 @@
 /**
  * DugganUSA Edge Shield
  *
- * Cloudflare Worker that protects your site with 653,342 distinct IOCs,
+ * Cloudflare Worker that protects your site with DugganUSA's threat feed,
  * scanner detection, geo analytics, and enterprise visitor tagging.
  *
  * Powered by DugganUSA Threat Intelligence API.
@@ -9,7 +9,7 @@
  * Deploy: npx wrangler deploy
  * Register: https://analytics.dugganusa.com/stix/register
  *
- * © 2026 DugganUSA LLC — Minneapolis, MN
+ * © 2026 DugganUSA LLC — Minnetrista, MN
  */
 
 // ================================================================
@@ -1287,9 +1287,22 @@ export default {
     const contentType = response.headers.get('content-type') || '';
     const host = reqUrl.hostname;
 
-    const out = (contentType.includes('text/html') && cfg.schemaInjectHosts.includes(hostname))
-      ? new HTMLRewriter().on('head', new SchemaInjector(host)).transform(response)
-      : response;
+    // LAYER 5.5: TRUST PATHS — site-reputation scanners (Scam Detector and its kind) probe
+    // /contact, /terms, /privacy, /pricing on the apex host and score a 404 as a missing
+    // business. Ours live elsewhere (About page, analytics, a blog post). Redirect only when
+    // the origin 404s, so a real Wix page added later always wins. 302, not 301, for the
+    // same reason. 2026-10-13.
+    if (response.status === 404 && TRUST_HOSTS.includes(hostname) && TRUST_REDIRECTS[reqUrl.pathname.replace(/\/+$/, '')]) {
+      return Response.redirect(new URL(TRUST_REDIRECTS[reqUrl.pathname.replace(/\/+$/, '')], 'https://www.dugganusa.com').href, 302);
+    }
+
+    let out = response;
+    if (contentType.includes('text/html') && cfg.schemaInjectHosts.includes(hostname)) {
+      const rw = new HTMLRewriter().on('head', new SchemaInjector(host));
+      // Server-side, so a crawler that never runs JavaScript still reads who we are.
+      if (TRUST_HOSTS.includes(hostname)) rw.on('body', new TrustFooter());
+      out = rw.transform(response);
+    }
 
     if (!observed.length) return out;
     const tagged = new Response(out.body, out);
@@ -1439,12 +1452,15 @@ async function serveArchive(request, originRequest, ctx) {
 const DUGGANUSA_ORGANIZATION_SCHEMA = {
   '@context': 'https://schema.org',
   '@type': 'Organization',
-  '@id': 'https://dugganusa.com#organization',
-  'name': 'DugganUSA',
+  '@id': 'https://www.dugganusa.com/#organization',
+  // @id/name/url match the Wix embed (config/wix/org-jsonld.html) so crawlers merge the two
+  // records into one entity instead of scoring two conflicting ones. The old logo URL
+  // (dugganusa.com/logo.png) returned 400. 2026-10-13.
+  'name': 'DugganUSA LLC',
   'legalName': 'DugganUSA LLC',
-  'alternateName': ['DugganUSA LLC', 'Butterbot by DugganUSA'],
-  'url': 'https://dugganusa.com',
-  'logo': 'https://dugganusa.com/logo.png',
+  'alternateName': ['DugganUSA', 'Butterbot by DugganUSA'],
+  'url': 'https://www.dugganusa.com',
+  'logo': 'https://static.wixstatic.com/media/fd5e2b_b7a0f87f83404839b4371dd9b41c70e6~mv2.png',
   'foundingDate': '2025-10-07',
   'description': 'Minnesota threat intelligence company. Publishes a free STIX 2.1 threat feed and search API (Butterbot), the AIPM AI Presence Management audit at aipmsec.com, and a public research blog with dated corrections. No SOC 2 report or third-party certification is claimed.',
   'address': {
@@ -1473,7 +1489,7 @@ const DUGGANUSA_ORGANIZATION_SCHEMA = {
       '@type': 'Person',
       'name': 'Patrick Duggan',
       'jobTitle': 'Founder and Chief Executive Officer',
-      'worksFor': { '@id': 'https://dugganusa.com#organization' },
+      'worksFor': { '@id': 'https://www.dugganusa.com/#organization' },
       'sameAs': [
         'https://www.linkedin.com/in/patrickdugganmn/',
         'https://bsky.app/profile/hakksaww.bsky.social',
@@ -1500,7 +1516,7 @@ const DUGGANUSA_SERVICES_SCHEMA = [
     'name': 'Butterbot Threat Intelligence',
     'description': 'STIX 2.1 threat feed, TAXII server, CSV/MISP exports and an indicator search API. Free tier available; live counts at https://analytics.dugganusa.com/api/v1/search/stats.',
     'serviceType': 'Threat Intelligence',
-    'provider': { '@id': 'https://dugganusa.com#organization' },
+    'provider': { '@id': 'https://www.dugganusa.com/#organization' },
     'url': 'https://analytics.dugganusa.com/api/v1/stix-feed',
     'areaServed': { '@type': 'Country', 'name': 'Worldwide' }
   },
@@ -1510,7 +1526,7 @@ const DUGGANUSA_SERVICES_SCHEMA = [
     'name': 'AIPM (AI Presence Management)',
     'description': 'Audits how AI language models describe a brand, using a multi-model council and seven site-structure signals, and publishes the ground truth each score is graded against.',
     'serviceType': 'AI Visibility Management',
-    'provider': { '@id': 'https://dugganusa.com#organization' },
+    'provider': { '@id': 'https://www.dugganusa.com/#organization' },
     'url': 'https://aipmsec.com'
   },
   {
@@ -1519,7 +1535,7 @@ const DUGGANUSA_SERVICES_SCHEMA = [
     'name': 'Edge Honeypot Network',
     'description': 'Open-source Cloudflare Worker deception endpoints that turn scanner traffic into indicators for the STIX feed.',
     'serviceType': 'Cyber Deception',
-    'provider': { '@id': 'https://dugganusa.com#organization' },
+    'provider': { '@id': 'https://www.dugganusa.com/#organization' },
     'url': 'https://github.com/pduggusa/dugganusa-edge-shield'
   },
   {
@@ -1528,9 +1544,47 @@ const DUGGANUSA_SERVICES_SCHEMA = [
     'name': 'Exploit Harvester',
     'description': 'Automated GitHub mining for newly published CVE proof-of-concept code. Extracts attack patterns and converts them to STIX 2.1 detection rules every 6 hours.',
     'serviceType': 'Threat Intelligence Automation',
-    'provider': { '@id': 'https://dugganusa.com#organization' }
+    'provider': { '@id': 'https://www.dugganusa.com/#organization' }
   }
 ];
+
+// ================================================================
+// TRUST FOOTER + TRUST PATHS (2026-10-13) — DugganUSA's own hosts only
+// A Scam Detector review scored www.dugganusa.com 34/100 on a stale scrape. The Wix
+// footer links none of: legal name, registered town, privacy, terms, contact. This adds
+// them at the edge, in plain HTML, on every page.
+// ================================================================
+const TRUST_HOSTS = ['www.dugganusa.com', 'dugganusa.com'];
+const TRUST_REDIRECTS = {
+  '/contact': '/about',
+  '/contact-us': '/about',
+  '/terms': 'https://analytics.dugganusa.com/terms',
+  '/privacy': '/post/dugganusa-privacy-policy',
+  '/pricing': 'https://analytics.dugganusa.com/pricing'
+};
+const TRUST_FOOTER_HTML =
+  '<footer id="dg-trust" style="clear:both;position:relative;z-index:6;background:#07090c;color:#9aa5b1;' +
+  'font:13px/1.7 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif;' +
+  'text-align:center;padding:18px 16px;border-top:1px solid #232a33">' +
+  '<span>&copy; 2026 DugganUSA LLC, a Minnesota limited liability company &middot; Minnetrista, Minnesota, USA ' +
+  '&middot; D-U-N-S 14-363-3562</span><br>' +
+  '<a style="color:#5ee6a0" href="/about">About</a> &middot; ' +
+  '<a style="color:#5ee6a0" href="mailto:help@dugganusa.com">Contact: help@dugganusa.com</a> &middot; ' +
+  '<a style="color:#5ee6a0" href="/post/dugganusa-privacy-policy">Privacy</a> &middot; ' +
+  '<a style="color:#5ee6a0" href="https://analytics.dugganusa.com/terms">Terms</a> &middot; ' +
+  '<a style="color:#5ee6a0" href="https://analytics.dugganusa.com/pricing">Pricing</a> &middot; ' +
+  '<a style="color:#5ee6a0" href="https://www.linkedin.com/company/dugganusa-llc" rel="noopener">LinkedIn</a> &middot; ' +
+  '<a style="color:#5ee6a0" href="https://github.com/pduggusa" rel="noopener">GitHub</a>' +
+  '</footer>';
+
+class TrustFooter {
+  constructor() { this.done = false; }
+  element(element) {
+    if (this.done) return;
+    this.done = true;
+    element.append(TRUST_FOOTER_HTML, { html: true });
+  }
+}
 
 class SchemaInjector {
   constructor(host) {

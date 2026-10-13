@@ -799,6 +799,28 @@ const SHAREPOINT_EXPLOIT_MARKERS = ['toolpane.aspx', 'spinstall0.aspx', 'signout
 const IVANTI_CANARY_PREFIXES = ['/dana-na/', '/dana-ws/', '/dana-cached/', '/dana/'];
 const IVANTI_EXPLOIT_MARKERS = ['/../', '%2e%2e', 'license/keys-status', 'totp/user-backup-code'];
 
+// ================================================================
+// APPLIANCE CANARIES — Cisco + Palo Alto Networks (2026-10-13, 2.11.0)
+// ================================================================
+// First packs chosen by measurement instead of by a KEV listing: scripts/canary-gap.mjs joined
+// 2,318 exploit-harvester endpoint rules to CISA KEV and the shipped matchers. Cisco: 10 of 10
+// KEV CVEs with harvested web paths had NO canary (Cisco holds 100 KEV entries); Palo Alto 3 of
+// 3 (15 KEV, ransomware-flagged). Prefixes are the ones those harvested PoCs and the products'
+// well-known fingerprinting hit first:
+//   Cisco ASA/FTD WebVPN (+CSCOE+ etc.), IOS XE web UI (/webui/, CVE-2023-20198 class), FMC
+//   REST (/api/fmc_platform/, /api/fmc_config/), ISE ERS (/ers/), SD-WAN Manager (/dataservice/,
+//   /j_security_check), Unified CM (/ccmadmin/, /cucm-uds/, /cmplatform/, /webdialer/).
+//   Palo Alto GlobalProtect (/global-protect/, /ssl-vpn/), PAN-OS management (/php/, /unauth/;
+//   CVE-2024-0012 ztp_gate.php, CVE-2025-0108 /unauth/%252e%252e/).
+// Deliberately NOT generic shapes the harvested PoCs also touched (/api/v1/, /admin/, /status,
+// /guest/, /auth/, /portal/): they collide with real routes on our own zones.
+const CISCO_CANARY_PREFIXES = ['/+cscoe+/', '/+cscou+/', '/+cscot+/', '/+webvpn+/', '/cscossl', '/webui/',
+  '/api/fmc_platform/', '/api/fmc_config/', '/ers/', '/dataservice/', '/ccmadmin/', '/cucm-uds/', '/cmplatform/', '/webdialer/'];
+const CISCO_CANARY_EXACT = new Set(['/j_security_check', '/webui', '/+cscoe+/logon.html']);
+const CISCO_EXPLOIT_MARKERS = ['logon_hash', '/../', '%2e%2e', 'installclusterstatusexecute', '/upload', 'translation-table', 'cmdexec', 'generatetoken'];
+const PALO_CANARY_PREFIXES = ['/global-protect/', '/ssl-vpn/', '/php/', '/unauth/'];
+const PALO_EXPLOIT_MARKERS = ['hipreport.esp', 'ztp_gate.php', '%252e%252e', '/../', '%2e%2e', 'uid.php'];
+
 function getApplianceCanary(path) {
   // ENCODED-PATH MARKER: a hit whose RAW path differs from its decoded form is the
   // WAF-bypass variant, which is worth knowing separately from a plain probe.
@@ -816,6 +838,17 @@ function getApplianceCanary(path) {
     }
     if (PEOPLESOFT_CANARY_PREFIXES.some(pre => withSlash.startsWith(pre))) {
       return { type: 'peoplesoft_scan', fake: 'peoplesoft', product: 'oracle-peoplesoft', ...(encoded ? { encoded_path: true } : {}) };
+    }
+    if (CISCO_CANARY_EXACT.has(lower) || CISCO_CANARY_PREFIXES.some(pre => withSlash.startsWith(pre) || (pre === '/cscossl' && lower.startsWith(pre)))) {
+      const exploit = CISCO_EXPLOIT_MARKERS.some(m => path.toLowerCase().includes(m) || lower.includes(m));
+      return { type: 'cisco_scan', fake: 'cisco', product: ciscoProduct(lower),
+        ...(exploit ? { exploit_path: true } : {}), ...(encoded ? { encoded_path: true } : {}) };
+    }
+    if (PALO_CANARY_PREFIXES.some(pre => withSlash.startsWith(pre))) {
+      const exploit = PALO_EXPLOIT_MARKERS.some(m => path.toLowerCase().includes(m) || lower.includes(m));
+      const gp = withSlash.startsWith('/global-protect/') || withSlash.startsWith('/ssl-vpn/');
+      return { type: 'paloalto_scan', fake: gp ? 'globalprotect' : 'panos', product: gp ? 'paloalto-globalprotect' : 'paloalto-panos-mgmt',
+        ...(exploit ? { exploit_path: true } : {}), ...(encoded ? { encoded_path: true } : {}) };
     }
     if (IVANTI_CANARY_PREFIXES.some(pre => withSlash.startsWith(pre))) {
       const exploit = IVANTI_EXPLOIT_MARKERS.some(m => path.toLowerCase().includes(m) || lower.includes(m));
@@ -890,6 +923,46 @@ function sharepointResponse() {
   });
 }
 
+function ciscoProduct(lower) {
+  if (/^\/(\+csco|\+webvpn|cscossl)/.test(lower)) return 'cisco-asa-webvpn';
+  if (lower.startsWith('/webui')) return 'cisco-iosxe-webui';
+  if (lower.startsWith('/api/fmc_')) return 'cisco-fmc';
+  if (lower.startsWith('/ers/')) return 'cisco-ise';
+  if (lower.startsWith('/dataservice/') || lower === '/j_security_check') return 'cisco-sdwan-manager';
+  return 'cisco-unified-cm';
+}
+
+// Minimal original markup per Cisco surface. No Cisco assets are copied. webvpnlogin (ASA) and
+// the page titles are what fingerprinters key on.
+function ciscoResponse(product) {
+  const title = { 'cisco-asa-webvpn': 'SSL VPN Service', 'cisco-iosxe-webui': 'Web UI Login', 'cisco-fmc': 'Login',
+    'cisco-ise': 'Identity Services Engine', 'cisco-sdwan-manager': 'Cisco vManage', 'cisco-unified-cm': 'Cisco Unified CM Administration' }[product] || 'Login';
+  if (product === 'cisco-fmc' || product === 'cisco-ise') {
+    return new Response(JSON.stringify({ error: { category: 'FRAMEWORK', messages: [{ description: 'Authentication required' }], severity: 'ERROR' } }), {
+      status: 401, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
+  }
+  const body = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${title}</title></head><body><form method="post" action="${product === 'cisco-asa-webvpn' ? '/+webvpn+/index.html' : '/j_security_check'}" autocomplete="off"><label for="username">Username</label><input type="text" id="username" name="${product === 'cisco-asa-webvpn' ? 'username' : 'j_username'}"><label for="password">Password</label><input type="password" id="password" name="${product === 'cisco-asa-webvpn' ? 'password' : 'j_password'}"><input type="submit" value="Login"></form></body></html>`;
+  const headers = { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' };
+  if (product === 'cisco-asa-webvpn') headers['Set-Cookie'] = 'webvpnlogin=1; path=/; secure';
+  return new Response(body, { status: 200, headers });
+}
+
+// Minimal original markup. No Palo Alto assets are copied. GlobalProtect clients and scanners
+// first hit prelogin.esp, which answers XML; the portal title and PHPSESSID on the management
+// UI are what PAN-OS fingerprinters key on.
+function paloResponse(fake, lower) {
+  if (fake === 'globalprotect' && lower.endsWith('prelogin.esp')) {
+    return new Response('<?xml version="1.0" encoding="UTF-8" ?><prelogin-response><status>Success</status><ccusername/><autosubmit>false</autosubmit><msg/><newmsg/><authentication-message>Enter login credentials</authentication-message><username-label>Username</username-label><password-label>Password</password-label><panos-version>1</panos-version><region>US</region></prelogin-response>', {
+      status: 200, headers: { 'Content-Type': 'application/xml; charset=UTF-8', 'Cache-Control': 'no-store' } });
+  }
+  const title = fake === 'globalprotect' ? 'GlobalProtect Portal' : 'Login';
+  const action = fake === 'globalprotect' ? '/global-protect/login.esp' : '/php/login.php';
+  const body = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${title}</title></head><body><form method="post" action="${action}" name="login" autocomplete="off"><label for="user">Name</label><input type="text" id="user" name="user"><label for="passwd">Password</label><input type="password" id="passwd" name="passwd"><input type="submit" value="Log In"></form></body></html>`;
+  const headers = { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' };
+  if (fake === 'panos') headers['Set-Cookie'] = 'PHPSESSID=; path=/; secure; httponly';
+  return new Response(body, { status: 200, headers });
+}
+
 // Minimal original markup: a Connect Secure-style sign-in that posts where it posts. No Ivanti
 // assets are copied. DSSignInURL / DSID are the cookies Connect Secure fingerprinters key on.
 function ivantiResponse() {
@@ -910,6 +983,8 @@ function honeypotResponse(request, cf, canary) {
   if (canary.fake === 'peoplesoft') return peoplesoftResponse();
   if (canary.fake === 'sharepoint') return sharepointResponse();
   if (canary.fake === 'ivanti') return ivantiResponse();
+  if (canary.fake === 'cisco') return ciscoResponse(canary.product);
+  if (canary.fake === 'globalprotect' || canary.fake === 'panos') return paloResponse(canary.fake, new URL(request.url).pathname.toLowerCase());
   const fakeFn = FAKE_RESPONSES[canary.fake];
   const body = fakeFn ? fakeFn() : '';
   const contentType = ['api', 'admin', 'actuator'].includes(canary.fake) ? 'application/json' :

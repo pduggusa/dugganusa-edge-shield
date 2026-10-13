@@ -20,8 +20,8 @@ const slice = (from, to) => {
 };
 const code = slice('const CANARY_PATHS', 'function honeypotResponse');
 const mod = await import('data:text/javascript,' + encodeURIComponent(
-  code + '\nexport { getCanary, getApplianceCanary, applianceCanariesEnabled, netscalerResponse, fortigateResponse, ivantiResponse, safeDecode };'));
-const { getCanary, getApplianceCanary, applianceCanariesEnabled, netscalerResponse, fortigateResponse, ivantiResponse } = mod;
+  code + '\nexport { getCanary, getApplianceCanary, applianceCanariesEnabled, netscalerResponse, fortigateResponse, ivantiResponse, ciscoResponse, paloResponse, safeDecode };'));
+const { getCanary, getApplianceCanary, applianceCanariesEnabled, netscalerResponse, fortigateResponse, ivantiResponse, ciscoResponse, paloResponse } = mod;
 
 // The same precedence the fetch handler uses.
 const pick = (env, host, path) =>
@@ -112,6 +112,44 @@ const ir = ivantiResponse();
 check('Ivanti response 200', ir.status, 200);
 check('DSSignInURL set', /^DSSignInURL=/.test(ir.headers.get('set-cookie') || ''), true);
 check('form posts to login.cgi', (await ir.text()).includes('action="/dana-na/auth/url_default/login.cgi"'), true);
+
+// Cisco (2.11.0)
+const ciscoCases = { '/+CSCOE+/logon.html': 'cisco-asa-webvpn', '/+webvpn+/index.html': 'cisco-asa-webvpn', '/CSCOSSLC/config-auth': 'cisco-asa-webvpn',
+  '/webui/logoutconfirm.html': 'cisco-iosxe-webui', '/api/fmc_platform/v1/auth/generatetoken': 'cisco-fmc', '/ers/sdk': 'cisco-ise',
+  '/dataservice/device': 'cisco-sdwan-manager', '/j_security_check': 'cisco-sdwan-manager', '/ccmadmin/showHome.do': 'cisco-unified-cm',
+  '/cucm-uds/users': 'cisco-unified-cm', '/webdialer/Webdialer': 'cisco-unified-cm' };
+for (const [p, prod] of Object.entries(ciscoCases)) {
+  check(`Cisco trap: ${p}`, kind(pick({}, 'analytics.dugganusa.com', p)), 'cisco_scan');
+  check(`Cisco product: ${p}`, getApplianceCanary(p).product, prod);
+}
+check('Cisco exploit marker: IOS XE logon_hash', getApplianceCanary('/webui/logoutconfirm.html?logon_hash=1').exploit_path, true);
+check('Cisco exploit marker: UCM installClusterStatusExecute', getApplianceCanary('/cmplatform/installClusterStatusExecute').exploit_path, true);
+check('plain Cisco probe no exploit marker', getApplianceCanary('/ccmadmin/showHome.do').exploit_path, undefined);
+// Palo Alto (2.11.0)
+for (const p of ['/global-protect/login.esp', '/global-protect/prelogin.esp', '/ssl-vpn/hipreport.esp', '/php/login.php', '/php/ztp_gate.php', '/unauth/%252e%252e/php/ztp_gate.php']) {
+  check(`Palo Alto trap: ${p}`, kind(pick({}, 'analytics.dugganusa.com', p)), 'paloalto_scan');
+}
+check('GlobalProtect product', getApplianceCanary('/global-protect/portal/').product, 'paloalto-globalprotect');
+check('PAN-OS mgmt product', getApplianceCanary('/php/login.php').product, 'paloalto-panos-mgmt');
+check('PAN-OS exploit marker ztp_gate', getApplianceCanary('/php/ztp_gate.php').exploit_path, true);
+check('GlobalProtect exploit marker hipreport', getApplianceCanary('/ssl-vpn/hipreport.esp').exploit_path, true);
+check('PAN-OS encoded marker', getApplianceCanary('/unauth/%252e%252e/php/ztp_gate.php').encoded_path, true);
+// must NOT trap (real routes / generic shapes on our zones)
+for (const p of ['/api/v1/search/stats', '/api/scheduler/jobs', '/api/fmc', '/admin/login', '/status', '/guest/', '/portal/', '/auth/login', '/phpmyadmin-x', '/phpinfo', '/webuix', '/erss', '/dataservices']) {
+  const k = kind(pick({}, 'analytics.dugganusa.com', p));
+  check(`not a Cisco/Palo trap: ${p}`, k === 'cisco_scan' || k === 'paloalto_scan', false);
+}
+check('phpMyAdmin canary keeps precedence', kind(pick({}, 'analytics.dugganusa.com', '/phpmyadmin/')), 'admin_scan');
+check('customer Cisco NOT trapped by default', kind(pick({}, 'vpn.customer.example', '/+CSCOE+/logon.html')), null);
+check('customer Palo NOT trapped by default', kind(pick({}, 'vpn.customer.example', '/global-protect/login.esp')), null);
+const asa = ciscoResponse('cisco-asa-webvpn');
+check('ASA decoy 200 + webvpnlogin cookie', asa.status === 200 && /^webvpnlogin=/.test(asa.headers.get('set-cookie') || ''), true);
+check('FMC decoy answers 401 JSON', ciscoResponse('cisco-fmc').status, 401);
+const pre = paloResponse('globalprotect', '/global-protect/prelogin.esp');
+check('GlobalProtect prelogin answers XML', (pre.headers.get('content-type') || '').includes('xml') && (await pre.text()).includes('<prelogin-response>'), true);
+const gp = paloResponse('globalprotect', '/global-protect/login.esp');
+check('GlobalProtect portal title', (await gp.text()).includes('<title>GlobalProtect Portal</title>'), true);
+check('PAN-OS mgmt PHPSESSID', /^PHPSESSID=/.test(paloResponse('panos', '/php/login.php').headers.get('set-cookie') || ''), true);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

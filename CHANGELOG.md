@@ -2,6 +2,14 @@
 
 All notable changes to DugganUSA Edge Shield are documented here.
 
+## 2.11.0 — 2026-10-13
+
+- **Cisco and Palo Alto Networks canaries, the first packs picked by measurement rather than after a KEV listing.** `scripts/canary-gap.mjs` in the platform repo joined 2,318 exploit-harvester endpoint rules to CISA KEV and these matchers. Cisco had no canary for any of its 10 KEV CVEs with harvested web paths (Cisco holds 100 KEV entries); Palo Alto had none for its 3 (15 KEV entries). Overall KEV coverage of harvested paths went from 26/137 to 37/137.
+  - Cisco (`cisco_scan`): ASA/FTD WebVPN (`/+CSCOE+/`, `/+CSCOU+/`, `/+CSCOT+/`, `/+webvpn+/`, `/CSCOSSL*`, `webvpnlogin` cookie), IOS XE web UI (`/webui/`), FMC REST (`/api/fmc_platform/`, `/api/fmc_config/`, answers 401 JSON), ISE ERS (`/ers/`), SD-WAN Manager (`/dataservice/`, `/j_security_check`), Unified CM (`/ccmadmin/`, `/cucm-uds/`, `/cmplatform/`, `/webdialer/`). The `product` tag names the surface.
+  - Palo Alto (`paloalto_scan`): GlobalProtect (`/global-protect/`, `/ssl-vpn/`; `prelogin.esp` answers the XML a client expects) and PAN-OS management (`/php/`, `/unauth/`, `PHPSESSID`).
+  - `exploit_path` markers: `logon_hash` (CVE-2023-20198 class), traversal, UCM `installClusterStatusExecute`, `hipreport.esp`, `ztp_gate.php` (CVE-2024-0012), and `%252e%252e` (CVE-2025-0108). `encoded_path` marks encoded spellings, as before.
+  - Deliberately not trapped: the generic shapes those PoCs also touched (`/api/v1/`, `/admin/`, `/status`, `/guest/`, `/auth/`, `/portal/`), because they collide with real routes on our zones. Own zones only by default (`APPLIANCE_CANARIES`).
+
 ## 2.10.0 — 2026-10-13
 
 - **Ivanti Connect Secure canaries.** `/dana-na/`, `/dana-ws/`, `/dana-cached/` and `/dana/` answer with a minimal original Connect Secure sign-in (`DSSignInURL` cookie). Tagged `ivanti_scan` / `ivanti-connect-secure`. Traversal and the CVE-2023-46805 / CVE-2024-21887 endpoints inside those prefixes carry `exploit_path: true`, and encoded spellings carry `encoded_path: true`. `/api/v1/totp/` and `/api/v1/configuration/` are deliberately NOT trapped, because our own API lives under `/api/v1/`. Closes a measured gap: CVE-2026-104935 entered CISA KEV on 2026-10-13 with a 3-day deadline, and the edge had 0 Connect Secure-shaped probes in 2,941,882 blocks and 139,334 canary docs since 2026-01-01, because we run no Ivanti. Own zones only by default (`APPLIANCE_CANARIES`).

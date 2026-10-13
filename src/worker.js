@@ -771,6 +771,19 @@ const FORTINET_CANARY_EXACT = new Set(['/remote/login', '/remote/logincheck', '/
 // fingerprinting hits first. All PeopleSoft-specific — nothing generic.
 const PEOPLESOFT_CANARY_PREFIXES = ['/psemhub/', '/psigw/', '/psp/', '/psc/'];
 
+// ================================================================
+// APPLIANCE CANARIES — Microsoft SharePoint (2026-10-13, 2.9.0)
+// ================================================================
+// SharePoint took two CISA KEV entries with 3-day deadlines in 60 days (CVE-2026-55040
+// 08-18, CVE-2026-65660 09-25), and ToolShell (CVE-2025-53770) before that. ttp-check
+// 2026-10-13: 37,730 blocks + 63,103 canary docs since 08-13, ZERO SharePoint-shaped —
+// we run no SharePoint, so that zero was blindness, not quiet. ToolPane.aspx and
+// spinstall0.aspx are the ToolShell exploit and webshell paths; /_layouts/, /_vti_bin/
+// and /_vti_pvt/ are what SharePoint fingerprinting hits first.
+// NOT /_api/: Wix (www) serves its own frontend from /_api/ — a canary there breaks the blog.
+const SHAREPOINT_CANARY_PREFIXES = ['/_layouts/', '/_vti_bin/', '/_vti_pvt/', '/_windows/default.aspx/'];
+const SHAREPOINT_EXPLOIT_MARKERS = ['toolpane.aspx', 'spinstall0.aspx', 'signout.aspx'];
+
 function getApplianceCanary(path) {
   // ENCODED-PATH MARKER: a hit whose RAW path differs from its decoded form is the
   // WAF-bypass variant, which is worth knowing separately from a plain probe.
@@ -788,6 +801,11 @@ function getApplianceCanary(path) {
     }
     if (PEOPLESOFT_CANARY_PREFIXES.some(pre => withSlash.startsWith(pre))) {
       return { type: 'peoplesoft_scan', fake: 'peoplesoft', product: 'oracle-peoplesoft', ...(encoded ? { encoded_path: true } : {}) };
+    }
+    if (SHAREPOINT_CANARY_PREFIXES.some(pre => withSlash.startsWith(pre))) {
+      const exploit = SHAREPOINT_EXPLOIT_MARKERS.some(m => lower.includes(m));
+      return { type: 'sharepoint_scan', fake: 'sharepoint', product: 'microsoft-sharepoint',
+        ...(exploit ? { exploit_path: true } : {}), ...(encoded ? { encoded_path: true } : {}) };
     }
   }
   return null;
@@ -829,7 +847,22 @@ function fortigateResponse() {
     status: 200,
     headers: {
       'Content-Type': 'text/html; charset=utf-8',
-      'Set-Cookie': `SVPNCOOKIE=; path=/; secure; httponly`,
+      'Set-Cookie': `PS_LOGINLIST=; path=/; secure; httponly`, // was SVPNCOOKIE (Fortinet's), copy-paste bug fixed 2.9.0
+      'Cache-Control': 'no-store',
+    }
+  });
+}
+
+// Minimal original markup, SharePoint-shaped headers. MicrosoftSharePointTeamServices and
+// SPRequestGuid are what fingerprinters key on. No Microsoft assets are copied.
+function sharepointResponse() {
+  const body = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Sign In</title></head><body><form method="post" action="/_layouts/15/Authenticate.aspx" id="aspnetForm"><input type="hidden" name="__VIEWSTATE" value=""><label for="user">User name</label><input type="text" id="user" name="user"><label for="pass">Password</label><input type="password" id="pass" name="pass"><input type="submit" value="Sign in"></form></body></html>`;
+  return new Response(body, {
+    headers: {
+      'Content-Type': 'text/html; charset=utf-8',
+      'MicrosoftSharePointTeamServices': '16.0.0.10417',
+      'SPRequestGuid': crypto.randomUUID(),
+      'X-AspNet-Version': '4.0.30319',
       'Cache-Control': 'no-store',
     }
   });
@@ -839,6 +872,7 @@ function honeypotResponse(request, cf, canary) {
   if (canary.fake === 'netscaler') return netscalerResponse();
   if (canary.fake === 'fortigate') return fortigateResponse();
   if (canary.fake === 'peoplesoft') return peoplesoftResponse();
+  if (canary.fake === 'sharepoint') return sharepointResponse();
   const fakeFn = FAKE_RESPONSES[canary.fake];
   const body = fakeFn ? fakeFn() : '';
   const contentType = ['api', 'admin', 'actuator'].includes(canary.fake) ? 'application/json' :

@@ -1426,7 +1426,6 @@ const DUGGANUSA_ORGANIZATION_SCHEMA = {
   },
   'sameAs': [
     'https://www.linkedin.com/company/dugganusa-llc',
-    'https://bsky.app/profile/dugganusa.com',
     'https://github.com/pduggusa',
     'https://analytics.dugganusa.com',
     'https://aipmsec.com'
@@ -1443,6 +1442,7 @@ const DUGGANUSA_ORGANIZATION_SCHEMA = {
       'worksFor': { '@id': 'https://dugganusa.com#organization' },
       'sameAs': [
         'https://www.linkedin.com/in/patrickdugganmn/',
+        'https://bsky.app/profile/hakksaww.bsky.social',
         'https://github.com/pduggusa'
       ]
     }

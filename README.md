@@ -22,7 +22,7 @@
 [![Cosign](https://img.shields.io/badge/Container%20Images-Cosign%20Signed-4ade80)](https://github.com/sigstore/cosign)
 [![SBOM](https://img.shields.io/badge/SBOM-CycloneDX-4ade80)](https://github.com/pduggusa/enterprise-extraction-platform/tree/main/compliance/evidence/sbom)
 
-**653,342 distinct IOCs. 30x the reach of list-only defence. Deploy in 30 seconds.**
+**DugganUSA's threat feed at your edge, plus behavioural blocking. Deploy in 30 seconds.**
 
 Behavioural blocking at the edge, not just a list. Over 16 measured days the shield stopped 1,638 distinct attacking hosts where a blocklist working alone would have stopped 55 — and 81.3% of the hosts that actually attacked were on no blocklist anywhere.
 
@@ -82,7 +82,7 @@ Visitor → Cloudflare Edge → Edge Shield → Your Origin
 | Layer | What Happens | Latency Added |
 |:-----:|:-------------|:-------------:|
 | **Scanner Detection** | Returns 418 to Shodan, Censys, LeakIX, Nuclei, ZMap | **0ms** |
-| **IOC Blocking** | Blocks IPs from a 653,342-indicator feed | **0ms** (cached) |
+| **IOC Blocking** | Blocks IPs from the DugganUSA feed ([live counts](https://analytics.dugganusa.com/api/v1/search/stats)) | **0ms** (cached) |
 | **Geo Enrichment** | Adds city, region, ASN, lat/lon headers to every request | **0ms** |
 
 Zero external lookups. Zero latency added. The intelligence lives in Worker memory.
@@ -103,7 +103,7 @@ scripts/verify.sh --product www.yourdomain.com --mode observe
 
 `wrangler.toml` is DugganUSA's own deployment. Don't deploy it; use your `wrangler.local.toml` (gitignored).
 
-**That's it.** Your site is protected by 653,342 distinct IOCs — plus behavioural blocking, which is the half a list cannot do.
+**That's it.** Your site is protected by the DugganUSA feed — plus behavioural blocking, which is the half a list cannot do.
 
 ---
 
@@ -152,7 +152,7 @@ Edge Shield is powered by the same STIX 2.1 feed that Fortune 500 security teams
 
 | Metric | Value |
 |:------:|:-----:|
-| **Distinct IOCs Indexed** | 653,342 (from 1.72M rows) |
+| **IOC records indexed** | live: [/api/v1/search/stats](https://analytics.dugganusa.com/api/v1/search/stats) (records are point observations, not distinct indicators) |
 | **Reach vs list-only defence** | 30x (1,638 hosts vs 55) |
 | **Autonomous Decisions** | 5,764,156 |
 | **Threats Blocked** | 2,038,293 |
@@ -317,7 +317,7 @@ scanner. If you serve any of those paths legitimately, disable honeypots or edit
 | Product | What It Does |
 |:--------|:-------------|
 | [**AIPM**](https://aipmsec.com) | Audit how AI models perceive your brand — 0% to 23% ChatGPT visibility in 3 days |
-| [**STIX Feed**](https://analytics.dugganusa.com/stix/pricing) | 653,342 distinct IOCs, Splunk ES + OPNsense + MISP, TAXII 2.1 (discovery is open, no key needed) |
+| [**STIX Feed**](https://analytics.dugganusa.com/stix/pricing) | Free feed, Splunk ES + OPNsense + MISP, TAXII 2.1 (discovery is open, no key needed) |
 | [**Epstein Files**](https://epstein.dugganusa.com) | 400,750 DOJ documents, full-text searchable, free |
 | [**Butterbot Tank**](https://github.com/pduggusa/butterbot-tank) | Autonomous site survey robot — WiFi heatmaps, NDAA detection, AR HUD |
 | [**Blog**](https://www.dugganusa.com) | 1,655 threat intelligence posts and counting |

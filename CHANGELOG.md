@@ -2,6 +2,10 @@
 
 All notable changes to DugganUSA Edge Shield are documented here.
 
+## 2.13.3 — 2026-10-14
+
+- **One Organization record per page.** On www/apex the injected Organization JSON-LD duplicated the Wix embed's `@id` with different fields ("Butterbot by DugganUSA", another email), so crawlers saw two conflicting entities. The worker no longer injects it there (the Wix embed `config/wix/org-jsonld.html` is canonical). Elsewhere it is aligned to the brand standard: one alternate name, the slogan, the product brands, help@ as contact. `ai-services` meta and the feed Service name use the standard product names; "HAIC" and "Pattern 38" removed.
+
 ## 2.13.2 — 2026-10-14
 
 - **Secret probes are logged, never indexed.** The 2.13.1 guard enumerated induced-fetch cases (AI fetchers, browser `Sec-Fetch-*`), and the second security review found both sides of that: any exemption is a detection bypass (send a ChatGPT-User UA), and the list was still incomplete (link previewers, mail link scanners like Safe Links and Proofpoint, all on shared egress, all inducible by a pasted or emailed link). The invariant replaces the list: a secret-file probe can always be induced, so one hit is never evidence about the requester and never becomes an IOC. Everyone still gets the edge 404, and no decoy is served. Every hit is logged as `{"shield":"secret-probe", path, via, exploit, asn, colo}` for counting, not blocking.

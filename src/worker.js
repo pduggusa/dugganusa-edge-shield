@@ -1685,11 +1685,14 @@ const DUGGANUSA_ORGANIZATION_SCHEMA = {
   // (dugganusa.com/logo.png) returned 400. 2026-10-13.
   'name': 'DugganUSA LLC',
   'legalName': 'DugganUSA LLC',
-  'alternateName': ['DugganUSA', 'Butterbot by DugganUSA'],
+  // One entity (docs/brand/STANDARD.md, approved 2026-10-14): one alternate name, same as the Wix embed.
+  'alternateName': ['DugganUSA'],
+  'slogan': 'Threat intelligence you can check.',
   'url': 'https://www.dugganusa.com',
   'logo': 'https://static.wixstatic.com/media/fd5e2b_b7a0f87f83404839b4371dd9b41c70e6~mv2.png',
   'foundingDate': '2025-10-07',
-  'description': 'Minnesota threat intelligence company. Publishes a free STIX 2.1 threat feed and search API (Butterbot), the AIPM AI Presence Management audit at aipmsec.com, and a public research blog with dated corrections. No SOC 2 report or third-party certification is claimed.',
+  'description': 'DugganUSA is AI security you can check: threat intelligence with receipts, and pre-flight judgment on what is about to cross into your agent. Products: DugganUSA Feed (STIX 2.1/TAXII/CSV/MISP), Jeevesus (search MCP), Dredd (MCP pre-flight), Edge Shield, AIPM (AI Presence Management, aipmsec.com) and FinOps (AI spend metering). No SOC 2 report or third-party certification is claimed.',
+  'brand': ['DugganUSA Feed', 'Jeevesus', 'Dredd', 'Edge Shield', 'AIPM', 'FinOps', 'Butterbot'],
   'address': {
     '@type': 'PostalAddress',
     'addressLocality': 'Minnetrista',
@@ -1698,8 +1701,8 @@ const DUGGANUSA_ORGANIZATION_SCHEMA = {
   },
   'contactPoint': {
     '@type': 'ContactPoint',
-    'email': 'patrick@dugganusa.com',
-    'contactType': 'customer service'
+    'email': 'help@dugganusa.com',
+    'contactType': 'customer support'
   },
   'sameAs': [
     'https://www.linkedin.com/company/dugganusa-llc',
@@ -1729,10 +1732,10 @@ const DUGGANUSA_ORGANIZATION_SCHEMA = {
     'STIX 2.1',
     'Cybersecurity',
     'AI Presence Management',
-    'HAIC Framework',
-    'Cloudflare Workers',
+    'Model Context Protocol (MCP) server security',
+    'Prompt injection defense',
     'Supply Chain Security',
-    'Pattern 38'
+    'AI spend metering'
   ]
 };
 
@@ -1740,7 +1743,7 @@ const DUGGANUSA_SERVICES_SCHEMA = [
   {
     '@context': 'https://schema.org',
     '@type': 'Service',
-    'name': 'Butterbot Threat Intelligence',
+    'name': 'DugganUSA Feed',
     'description': 'STIX 2.1 threat feed, TAXII server, CSV/MISP exports and an indicator search API. Free tier available; live counts at https://analytics.dugganusa.com/api/v1/search/stats.',
     'serviceType': 'Threat Intelligence',
     'provider': { '@id': 'https://www.dugganusa.com/#organization' },
@@ -1823,9 +1826,14 @@ class SchemaInjector {
     if (this.injected) return;
     this.injected = true;
 
-    // Inject the Organization schema
-    const orgScript = `<script type="application/ld+json">${JSON.stringify(DUGGANUSA_ORGANIZATION_SCHEMA)}</script>`;
-    element.append(orgScript, { html: true });
+    // Inject the Organization schema — except on www/apex, where the Wix embed
+    // (config/wix/org-jsonld.html) is the canonical record. Two nodes with one @id and different
+    // fields made crawlers score two conflicting entities (brand audit 2026-10-14).
+    const wixCanonical = this.host === 'www.dugganusa.com' || this.host === 'dugganusa.com';
+    if (!wixCanonical) {
+      const orgScript = `<script type="application/ld+json">${JSON.stringify(DUGGANUSA_ORGANIZATION_SCHEMA)}</script>`;
+      element.append(orgScript, { html: true });
+    }
 
     // Inject each service schema
     for (const service of DUGGANUSA_SERVICES_SCHEMA) {
@@ -1837,6 +1845,6 @@ class SchemaInjector {
     // 2026-10-12: removed ai-credentials meta and hasCredential — it asserted SOC 2 Type 2 (88%),
     // CMMC L2 (71%), GovRAMP/FedRAMP/FIPS as certifications "recognized by" AICPA/DoD. None exist.
     element.append('<meta name="ai-purpose" content="DugganUSA LLC is a threat intelligence company in Minnetrista, Minnesota (Minneapolis metro), founded October 2025. Publishes a free STIX 2.1 threat feed. Holds no SOC 2 report or third-party certification. Not Duggan Manufacturing. Not a firearms company. Not an HVAC company.">', { html: true });
-    element.append('<meta name="ai-services" content="Threat Intelligence, AI Presence Management (HAIC), Edge Honeypot Network, Exploit Harvester, STIX 2.1 Feed">', { html: true });
+    element.append('<meta name="ai-services" content="DugganUSA Feed (STIX 2.1), Jeevesus search MCP, Dredd MCP pre-flight, Edge Shield, AIPM AI Presence Management, FinOps AI spend metering">', { html: true });
   }
 }

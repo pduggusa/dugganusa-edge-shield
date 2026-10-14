@@ -124,6 +124,8 @@ X-DugganUSA-IOCs: 1100000
 
 Build geo dashboards, detect anomalies, log city-level analytics — all from headers your origin already receives.
 
+**`x-dugganusa-edge` (2.14.0) is DugganUSA-only. You don't need it.** DugganUSA's own deployment sends it to DugganUSA's own origin so that origin can tell a request really came through the edge before it believes `cf-connecting-ip`. It is sent only when the `ORIGIN_EDGE_SECRET` secret is set and only to the hosts in `ORIGIN_EDGE_HOSTS` (default `analytics.dugganusa.com`), so a customer deployment sends nothing. Leave both unset. Any copy of the header a client sends is stripped before your origin sees it. If you want the same protection for your own origin, set both on your own Worker, compare the value in constant time at the origin, and only then trust `cf-connecting-ip`.
+
 ---
 
 ## What Scanners See

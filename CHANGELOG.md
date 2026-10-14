@@ -2,6 +2,10 @@
 
 All notable changes to DugganUSA Edge Shield are documented here.
 
+## 2.13.2 — 2026-10-14
+
+- **Secret probes are logged, never indexed.** The 2.13.1 guard enumerated induced-fetch cases (AI fetchers, browser `Sec-Fetch-*`), and the second security review found both sides of that: any exemption is a detection bypass (send a ChatGPT-User UA), and the list was still incomplete (link previewers, mail link scanners like Safe Links and Proofpoint, all on shared egress, all inducible by a pasted or emailed link). The invariant replaces the list: a secret-file probe can always be induced, so one hit is never evidence about the requester and never becomes an IOC. Everyone still gets the edge 404, and no decoy is served. Every hit is logged as `{"shield":"secret-probe", path, via, exploit, asn, colo}` for counting, not blocking.
+
 ## 2.13.1 — 2026-10-14
 
 - **Fix: secret probes could poison the feed (2.13.0 was live ~15 minutes, then rolled back; zero records indexed).** The trapped paths are trivially induced: an `<img src=".../key.pem">` on any page makes a visitor's browser fetch one, and a prompt-injected "fetch this URL" makes ChatGPT-User or Perplexity-User fetch one from shared egress. That egress often fails rDNS verification, and `perplexity-user` was not in the verify list at all. 2.13.0 indexed those at confidence 95, which would have put OpenAI/Perplexity egress into ips.csv. Now: any request claiming an AI fetcher (verified or not) is never indexed; browser-initiated subresource or cross-site fetches (`Sec-Fetch-*`) are never indexed; everything else indexes at **confidence 40**, below the ips.csv floor (50) and the edge floor (80). The 404 still applies to everyone. Found by the automated security review of 1ed45ee.

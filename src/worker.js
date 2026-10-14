@@ -895,9 +895,8 @@ function getApplianceCanary(path) {
 // /credentials.json, /.zshrc, /key.pem, /sa.json, /firebase-adminsdk.json, /rclone.conf,
 // /@fs/.../serviceaccount/ca.crt. None was trapped; all reached origin. These get a plain 404 AT
 // THE EDGE for everyone, and no fake secret is ever served: a decoy key gets scraped and reported
-// as "DugganUSA leaked credentials", and an AI fetcher relays it to its user as fact. Unverified
-// clients are indexed like any canary hit. Verified crawlers / AI fetchers get the same 404 and
-// are only logged: their egress is shared infrastructure and never goes on a blocklist.
+// as "DugganUSA leaked credentials", and an AI fetcher relays it to its user as fact. Hits are
+// LOGGED, never indexed (2.13.2, see the handler): these paths are trivially induced.
 // /@fs/ is Vite's dev-server file read (CVE-2025-30208 class) and /__vite_rsc_findSourceMapURL
 // is the Vite RSC source-map endpoint; both carry exploit_path. Own zones by default, same
 // scoping as the appliance canaries. Bare /config.json is NOT trapped: too generic.
@@ -925,23 +924,20 @@ function getSecretProbe(path) {
   return null;
 }
 
-// Below the ips.csv floor (50) and the edge-shield floor (80): seen, never blocked on.
-const SECRET_PROBE_CONFIDENCE = 40;
-// AI agents fetch on a user's (or an injected prompt's) behalf. Claimed by UA, verified or not.
+// How a secret probe arrived. Telemetry only: a label for counting, never a reason to block.
 const AI_FETCHER_UA = ['chatgpt-user', 'oai-searchbot', 'gptbot', 'perplexity-user', 'perplexitybot', 'claude-user',
-  'claude-searchbot', 'claudebot', 'claude-web', 'meta-externalfetcher', 'meta-externalagent', 'google-extended',
-  'gemini', 'mistralai-user', 'duckassistbot', 'youbot', 'cohere-ai', 'bytespider', 'amazonbot', 'applebot'];
+  'claude-searchbot', 'claudebot', 'claude-web', 'meta-externalfetcher', 'meta-externalagent', 'gemini',
+  'mistralai-user', 'duckassistbot', 'youbot', 'cohere-ai', 'bytespider', 'amazonbot', 'applebot'];
 
-function secretProbeNoIndexReason(request, ua, verifiedCrawler) {
+function secretProbeVia(request, ua, verifiedCrawler) {
   if (verifiedCrawler) return 'verified-crawler';
   const lower = String(ua || '').toLowerCase();
-  if (AI_FETCHER_UA.some(t => lower.includes(t))) return 'ai-fetcher-ua';
-  // Browser subresource / cross-site navigation = a page made the visitor's browser ask.
+  if (AI_FETCHER_UA.some(t => lower.includes(t))) return 'claims-ai-fetcher';
   const site = (request.headers.get('sec-fetch-site') || '').toLowerCase();
   const dest = (request.headers.get('sec-fetch-dest') || '').toLowerCase();
-  if (site === 'cross-site' || site === 'same-site') return 'browser-induced';
+  if (site === 'cross-site' || site === 'same-site') return 'browser-cross-site';
   if (dest && dest !== 'document' && dest !== 'empty') return 'browser-subresource';
-  return null;
+  return 'direct';
 }
 
 // A plain, honest 404. No decoy content: see SECRET-FILE PROBES above.
@@ -1121,7 +1117,7 @@ async function indexHoneypotHit(env, request, cf, canary) {
     deployment_host: (() => { try { return new URL(request.url).hostname; } catch { return ''; } })(),
     threat_type: 'scanner',
     malware_family: canary.type,
-    confidence: canary.confidence ?? 95,
+    confidence: 95,
     country: cf.country || '',
     description: `Edge honeypot trap: ${canary.type} probe on ${request.url}. ` +
       `ASN: AS${cf.asn || '?'} ${cf.asOrganization || '?'}. ` +
@@ -1437,16 +1433,15 @@ export default {
     // exempt from decoys, not from the 404). Only unverified clients are indexed.
     const secretProbe = applianceCanariesEnabled(env, hostname) ? getSecretProbe(path) : null;
     if (secretProbe) {
-      // FEED-POISONING GUARD (security review of 1ed45ee). These paths are trivially INDUCED: an
-      // <img src=".../key.pem"> on any page makes a victim's browser fetch one, and a prompt-
-      // injected "fetch this URL" makes ChatGPT-User / Perplexity-User fetch one from shared egress
-      // that often fails rDNS verification (and perplexity-user is not in our verify list at all).
-      // So: never index a request claiming ANY AI fetcher (verified or not), never index a
-      // browser-initiated subresource, and index the rest BELOW every blocking floor (conf 40 <
-      // ips.csv 50 < edge 80). A secret probe is an observation, not block-grade evidence.
-      const why = secretProbeNoIndexReason(request, ua, verifiedCrawler);
-      if (honeypotsEnabled && !why) ctx.waitUntil(indexHoneypotHit(env, request, cf, { ...secretProbe, confidence: SECRET_PROBE_CONFIDENCE }));
-      else if (why) console.log(JSON.stringify({ shield: 'secret-probe', indexed: false, why, path, ua: ua.substring(0, 80), asn: cf.asn }));
+      // NEVER INDEXED (2.13.2). A secret-file probe can always be INDUCED: a victim's browser via
+      // <img src>, an AI fetcher via a prompt-injected URL, a link previewer (Slackbot, Discordbot)
+      // or a mail link scanner (Safe Links, Proofpoint) via a pasted or emailed link, all from
+      // shared egress. Enumerating those cases was a treadmill (two security reviews, two holes),
+      // and any no-index exemption doubles as a detection bypass. The invariant: one hit is never
+      // evidence about the requester, so it never becomes an IOC. Everyone gets the 404; every
+      // hit is logged with how it arrived, for counting, not for blocking.
+      console.log(JSON.stringify({ shield: 'secret-probe', path, via: secretProbeVia(request, ua, verifiedCrawler),
+        exploit: !!secretProbe.exploit_path, asn: cf.asn, colo: cf.colo, ua: ua.substring(0, 80) }));
       return secretProbeResponse();
     }
 

@@ -20,8 +20,8 @@ const slice = (from, to) => {
 };
 const code = slice('const CANARY_PATHS', 'function honeypotResponse');
 const mod = await import('data:text/javascript,' + encodeURIComponent(
-  code + '\nexport { getCanary, getApplianceCanary, applianceCanariesEnabled, netscalerResponse, fortigateResponse, ivantiResponse, ciscoResponse, paloResponse, sonicwallResponse, safeDecode };'));
-const { getCanary, getApplianceCanary, applianceCanariesEnabled, netscalerResponse, fortigateResponse, ivantiResponse, ciscoResponse, paloResponse, sonicwallResponse } = mod;
+  code + '\nexport { getCanary, getApplianceCanary, applianceCanariesEnabled, netscalerResponse, fortigateResponse, ivantiResponse, ciscoResponse, paloResponse, sonicwallResponse, getSecretProbe, secretProbeResponse, safeDecode };'));
+const { getCanary, getApplianceCanary, applianceCanariesEnabled, netscalerResponse, fortigateResponse, ivantiResponse, ciscoResponse, paloResponse, sonicwallResponse, getSecretProbe, secretProbeResponse } = mod;
 
 // The same precedence the fetch handler uses.
 const pick = (env, host, path) =>
@@ -177,6 +177,24 @@ check('/__api__/ decoy answers 401 JSON', sonicwallResponse('/__api__/login').st
 // The indexer must persist exploit_path (dropped before 2.12.0) and never the credential itself.
 check('indexer persists exploit_path', /canary\.exploit_path \? \{ exploit_path: true \}/.test(src), true);
 check('indexer stores default_creds as a boolean only', /default_creds: true/.test(src) && !/default_creds: request/.test(src), true);
+
+// Secret-file probes (2.13.0) — the paths Wix's AI Bot Visits report showed reaching origin.
+for (const p of ['/credentials.json', '/.zshrc', '/key.pem', '/sa.json', '/firebase-adminsdk.json', '/firebase-adminsdk-x1y2z.json',
+                 '/rclone.conf', '/runtime-config.js', '/api/config', '/@fs/var/run/secrets/kubernetes.io/serviceaccount/ca.crt',
+                 '/__vite_rsc_findSourceMapURL', '/.ssh/id_rsa', '/%2ezshrc', '/KEY.PEM']) {
+  check(`secret probe: ${p}`, getSecretProbe(p)?.type, 'secret_probe');
+}
+check('Vite @fs read carries exploit marker', getSecretProbe('/@fs/etc/passwd').exploit_path, true);
+check('k8s secret path carries exploit marker', getSecretProbe('/x/var/run/secrets/kubernetes.io/token').exploit_path, true);
+check('plain .zshrc carries no exploit marker', getSecretProbe('/.zshrc').exploit_path, undefined);
+for (const p of ['/', '/config.json', '/api/v1/search/stats', '/post/key-pem-files-explained', '/credentials', '/blog/sa.json/x', '/certs/ca.pem']) {
+  check(`not a secret probe: ${p}`, getSecretProbe(p), null);
+}
+const sp = secretProbeResponse();
+check('secret probe answers plain 404', sp.status, 404);
+check('secret probe serves no decoy content', (await sp.text()).trim(), 'Not found');
+check('handler 404s secret probes before the crawler-exempt canary block', src.indexOf('const secretProbe =') > 0 && src.indexOf('const secretProbe =') < src.indexOf('const canary = (honeypotsEnabled && !verifiedCrawler)'), true);
+check('verified crawlers are never indexed on secret probes', /if \(honeypotsEnabled && !verifiedCrawler\) ctx\.waitUntil\(indexHoneypotHit\(env, request, cf, secretProbe\)\)/.test(src), true);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

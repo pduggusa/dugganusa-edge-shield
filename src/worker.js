@@ -888,6 +888,48 @@ function getApplianceCanary(path) {
   return null;
 }
 
+// ================================================================
+// SECRET-FILE PROBES (2026-10-14, 2.13.0)
+// ================================================================
+// Wix's AI Bot Visits report (30d) showed ~15% of AI-fetcher hits on www asking for secrets:
+// /credentials.json, /.zshrc, /key.pem, /sa.json, /firebase-adminsdk.json, /rclone.conf,
+// /@fs/.../serviceaccount/ca.crt. None was trapped; all reached origin. These get a plain 404 AT
+// THE EDGE for everyone, and no fake secret is ever served: a decoy key gets scraped and reported
+// as "DugganUSA leaked credentials", and an AI fetcher relays it to its user as fact. Unverified
+// clients are indexed like any canary hit. Verified crawlers / AI fetchers get the same 404 and
+// are only logged: their egress is shared infrastructure and never goes on a blocklist.
+// /@fs/ is Vite's dev-server file read (CVE-2025-30208 class) and /__vite_rsc_findSourceMapURL
+// is the Vite RSC source-map endpoint; both carry exploit_path. Own zones by default, same
+// scoping as the appliance canaries. Bare /config.json is NOT trapped: too generic.
+const SECRET_PROBE_EXACT = new Set([
+  '/credentials.json', '/.zshrc', '/.bashrc', '/.bash_history', '/.profile', '/.zsh_history',
+  '/key.pem', '/private.pem', '/privkey.pem', '/server.key', '/private.key', '/id_rsa', '/id_ed25519', '/id_ecdsa',
+  '/sa.json', '/service-account.json', '/serviceaccount.json', '/gcp-key.json', '/rclone.conf',
+  '/.npmrc', '/.pypirc', '/.netrc', '/.git-credentials', '/.docker/config.json', '/.kube/config',
+  '/runtime-config.js', '/api/config',
+]);
+const SECRET_PROBE_PREFIXES = ['/@fs/', '/__vite', '/.ssh/', '/.kube/', '/.docker/'];
+const SECRET_PROBE_PATTERNS = [/^\/firebase-adminsdk[^/]*\.json$/, /\/var\/run\/secrets\//, /^\/[^/]+\.(pem|p12|pfx)$/];
+
+function getSecretProbe(path) {
+  const encoded = safeDecode(path) !== path;
+  for (const p of [path, safeDecode(path)]) {
+    const lower = p.toLowerCase();
+    if (SECRET_PROBE_EXACT.has(lower) || SECRET_PROBE_PREFIXES.some(pre => lower.startsWith(pre)) ||
+        SECRET_PROBE_PATTERNS.some(re => re.test(lower))) {
+      const exploit = lower.startsWith('/@fs/') || lower.startsWith('/__vite') || lower.includes('/var/run/secrets/');
+      return { type: 'secret_probe', fake: 'notfound', product: 'secret-file',
+        ...(exploit ? { exploit_path: true } : {}), ...(encoded ? { encoded_path: true } : {}) };
+    }
+  }
+  return null;
+}
+
+// A plain, honest 404. No decoy content: see SECRET-FILE PROBES above.
+function secretProbeResponse() {
+  return new Response('Not found\n', { status: 404, headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' } });
+}
+
 // Minimal original markup: a PeopleSoft-style sign-in that posts where PeopleSoft posts.
 // No Oracle assets are copied. PS_LOGINLIST / PS_TOKEN are what fingerprinters key on.
 function peoplesoftResponse() {
@@ -1372,6 +1414,15 @@ export default {
     // Verified crawlers are exempt: a canary returns a convincing fake 200 full of
     // invented shell output or fake API keys, and a search engine would index that
     // against the customer's own domain.
+    // Secret-file probes: a 404 at the edge for EVERYONE, verified crawlers included (they are
+    // exempt from decoys, not from the 404). Only unverified clients are indexed.
+    const secretProbe = applianceCanariesEnabled(env, hostname) ? getSecretProbe(path) : null;
+    if (secretProbe) {
+      if (honeypotsEnabled && !verifiedCrawler) ctx.waitUntil(indexHoneypotHit(env, request, cf, secretProbe));
+      else if (verifiedCrawler) console.log(JSON.stringify({ shield: 'secret-probe', verified_crawler: true, path, ua: ua.substring(0, 80), asn: cf.asn }));
+      return secretProbeResponse();
+    }
+
     // Existing canaries take precedence, so /vpn/%2eenv still counts as a config probe.
     const canary = (honeypotsEnabled && !verifiedCrawler)
       ? (getCanary(path) || (applianceCanariesEnabled(env, new URL(request.url).hostname) ? getApplianceCanary(path) : null))

@@ -147,6 +147,54 @@ function logObserved(would, ip, hostname, path, rayId) {
 }
 
 // ================================================================
+// ORIGIN EDGE SECRET (2.14.0) — DugganUSA-only; customer deployments leave it unset
+// ================================================================
+// The origin behind this worker can only trust cf-connecting-ip if it can tell that a
+// request really came through our edge: its public FQDN can be found and hit directly,
+// with a forged Host AND a forged cf-connecting-ip. So every request this worker forwards
+// to one of OUR origins carries `x-dugganusa-edge: <ORIGIN_EDGE_SECRET>` (a wrangler
+// secret, never in wrangler.toml or code), and the origin compares it in constant time.
+//
+// Scoped to ORIGIN_EDGE_HOSTS (default: analytics.dugganusa.com), so the secret never goes
+// to a third-party origin (www/apex are Wix). A client-supplied copy of the header is
+// stripped on every forward, everywhere. Secret unset: nothing is sent, and a config
+// warning is logged once per isolate (only for a listed host, so customers never see it).
+const ORIGIN_EDGE_HEADER = 'x-dugganusa-edge';
+const DEFAULT_ORIGIN_EDGE_HOSTS = ['analytics.dugganusa.com'];
+let originEdgeWarned = false;
+
+function originEdgeHosts(env) {
+  const raw = env && env.ORIGIN_EDGE_HOSTS;
+  if (typeof raw !== 'string' || !raw.trim()) return DEFAULT_ORIGIN_EDGE_HOSTS;
+  return raw.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+}
+
+// Mutates a Headers object bound for origin. Returns true when it changed anything.
+function applyOriginEdge(headers, env, hostname) {
+  const had = headers.has(ORIGIN_EDGE_HEADER);
+  headers.delete(ORIGIN_EDGE_HEADER);
+  const h = String(hostname || '').toLowerCase();
+  if (!originEdgeHosts(env).includes(h)) return had;
+  const secret = env && typeof env.ORIGIN_EDGE_SECRET === 'string' ? env.ORIGIN_EDGE_SECRET : '';
+  if (!secret) {
+    if (!originEdgeWarned) {
+      originEdgeWarned = true;
+      console.log(JSON.stringify({ shield: 'config', warning: 'ORIGIN_EDGE_SECRET unset: origin cannot verify edge requests', host: h }));
+    }
+    return had;
+  }
+  headers.set(ORIGIN_EDGE_HEADER, secret);
+  return true;
+}
+
+// For pass-through fetches that forward the original request unchanged.
+function withOriginEdge(request, env, hostname) {
+  const headers = new Headers(request.headers);
+  return applyOriginEdge(headers, env, hostname) ? new Request(request, { headers }) : request;
+}
+// END ORIGIN EDGE SECRET
+
+// ================================================================
 // KNOWN SCANNER SIGNATURES
 // ================================================================
 
@@ -1328,7 +1376,7 @@ export default {
           r.headers.set('x-dusa-beacon-cache', 'hit');
           return r;
         }
-        const origin = await fetch(request);
+        const origin = await fetch(withOriginEdge(request, env, hostname));
         if (origin.ok) {
           const cacheable = new Response(origin.body, origin);
           cacheable.headers.set('Cache-Control', 'public, max-age=3600, s-maxage=86400');
@@ -1492,6 +1540,9 @@ export default {
     // Shield metadata
     newHeaders.set('X-DugganUSA-Shield', 'active');
     newHeaders.set('X-DugganUSA-IOCs', iocCache.count.toString());
+
+    // Origin edge secret (2.14.0): our own origins only; a client copy is always stripped.
+    applyOriginEdge(newHeaders, env, hostname);
 
     // Pass to origin with enriched headers
     const newRequest = new Request(request, { headers: newHeaders });

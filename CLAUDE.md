@@ -237,6 +237,7 @@ warning in Workers Logs. Full comments live in `wrangler.example.toml`.
 | `FEED_HIT_REPORTING` | `true` | `true` / `false` |
 | `SCHEMA_INJECT_HOSTS` | DugganUSA's hosts | comma list; `""` = none |
 | `SENSOR_HOSTS` | none | comma list of hosts or `*.example.com` |
+| `ORIGIN_EDGE_HOSTS` | `analytics.dugganusa.com` | DugganUSA-only; customers leave unset (see README) |
 
 Observe mode covers scanner 418, IOC 403 and rate-limit 429. Honeypots are
 deception rather than blocking, so they keep their own switch.
@@ -253,7 +254,7 @@ deception rather than blocking, so they keep their own switch.
   traffic", not "blocked", so failing closed costs a real crawler nothing.
 - **Tests extract the shipped code** rather than reimplementing it:
   `node test-config-observe.mjs`, `node test-appliance-canaries.mjs`,
-  `node test-crawler-verify.mjs` (the last one uses real DNS).
+  `node test-crawler-verify.mjs` (the last one uses real DNS), `node test-origin-edge.mjs`.
 
 ## Support
 

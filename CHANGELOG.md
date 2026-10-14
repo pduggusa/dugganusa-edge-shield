@@ -2,6 +2,10 @@
 
 All notable changes to DugganUSA Edge Shield are documented here.
 
+## 2.13.1 — 2026-10-14
+
+- **Fix: secret probes could poison the feed (2.13.0 was live ~15 minutes, then rolled back; zero records indexed).** The trapped paths are trivially induced: an `<img src=".../key.pem">` on any page makes a visitor's browser fetch one, and a prompt-injected "fetch this URL" makes ChatGPT-User or Perplexity-User fetch one from shared egress. That egress often fails rDNS verification, and `perplexity-user` was not in the verify list at all. 2.13.0 indexed those at confidence 95, which would have put OpenAI/Perplexity egress into ips.csv. Now: any request claiming an AI fetcher (verified or not) is never indexed; browser-initiated subresource or cross-site fetches (`Sec-Fetch-*`) are never indexed; everything else indexes at **confidence 40**, below the ips.csv floor (50) and the edge floor (80). The 404 still applies to everyone. Found by the automated security review of 1ed45ee.
+
 ## 2.13.0 — 2026-10-14
 
 - **Secret-file probes get a 404 at the edge.** Wix's AI Bot Visits report (30 days) showed about 15% of AI-fetcher hits on www asking for secrets (`/credentials.json`, `/.zshrc`, `/key.pem`, `/sa.json`, `/firebase-adminsdk*.json`, `/rclone.conf`, `/@fs/…/var/run/secrets/…`, `/__vite_rsc_findSourceMapURL`). None was trapped and all of them reached origin. They now get a plain `404 Not found` at the edge for everyone. **No decoy secret is ever served**: a fake key gets scraped and reported as a leak, and an AI fetcher relays it to its user as fact. Unverified clients are indexed as `secret_probe` (with `exploit_path` on Vite `@fs` / RSC and k8s secret paths). Verified crawlers and AI fetchers get the same 404 and are only logged, never indexed: their egress is shared infrastructure. Own zones only by default (`APPLIANCE_CANARIES`).

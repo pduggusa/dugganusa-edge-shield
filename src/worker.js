@@ -925,6 +925,25 @@ function getSecretProbe(path) {
   return null;
 }
 
+// Below the ips.csv floor (50) and the edge-shield floor (80): seen, never blocked on.
+const SECRET_PROBE_CONFIDENCE = 40;
+// AI agents fetch on a user's (or an injected prompt's) behalf. Claimed by UA, verified or not.
+const AI_FETCHER_UA = ['chatgpt-user', 'oai-searchbot', 'gptbot', 'perplexity-user', 'perplexitybot', 'claude-user',
+  'claude-searchbot', 'claudebot', 'claude-web', 'meta-externalfetcher', 'meta-externalagent', 'google-extended',
+  'gemini', 'mistralai-user', 'duckassistbot', 'youbot', 'cohere-ai', 'bytespider', 'amazonbot', 'applebot'];
+
+function secretProbeNoIndexReason(request, ua, verifiedCrawler) {
+  if (verifiedCrawler) return 'verified-crawler';
+  const lower = String(ua || '').toLowerCase();
+  if (AI_FETCHER_UA.some(t => lower.includes(t))) return 'ai-fetcher-ua';
+  // Browser subresource / cross-site navigation = a page made the visitor's browser ask.
+  const site = (request.headers.get('sec-fetch-site') || '').toLowerCase();
+  const dest = (request.headers.get('sec-fetch-dest') || '').toLowerCase();
+  if (site === 'cross-site' || site === 'same-site') return 'browser-induced';
+  if (dest && dest !== 'document' && dest !== 'empty') return 'browser-subresource';
+  return null;
+}
+
 // A plain, honest 404. No decoy content: see SECRET-FILE PROBES above.
 function secretProbeResponse() {
   return new Response('Not found\n', { status: 404, headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' } });
@@ -1102,7 +1121,7 @@ async function indexHoneypotHit(env, request, cf, canary) {
     deployment_host: (() => { try { return new URL(request.url).hostname; } catch { return ''; } })(),
     threat_type: 'scanner',
     malware_family: canary.type,
-    confidence: 95,
+    confidence: canary.confidence ?? 95,
     country: cf.country || '',
     description: `Edge honeypot trap: ${canary.type} probe on ${request.url}. ` +
       `ASN: AS${cf.asn || '?'} ${cf.asOrganization || '?'}. ` +
@@ -1418,8 +1437,16 @@ export default {
     // exempt from decoys, not from the 404). Only unverified clients are indexed.
     const secretProbe = applianceCanariesEnabled(env, hostname) ? getSecretProbe(path) : null;
     if (secretProbe) {
-      if (honeypotsEnabled && !verifiedCrawler) ctx.waitUntil(indexHoneypotHit(env, request, cf, secretProbe));
-      else if (verifiedCrawler) console.log(JSON.stringify({ shield: 'secret-probe', verified_crawler: true, path, ua: ua.substring(0, 80), asn: cf.asn }));
+      // FEED-POISONING GUARD (security review of 1ed45ee). These paths are trivially INDUCED: an
+      // <img src=".../key.pem"> on any page makes a victim's browser fetch one, and a prompt-
+      // injected "fetch this URL" makes ChatGPT-User / Perplexity-User fetch one from shared egress
+      // that often fails rDNS verification (and perplexity-user is not in our verify list at all).
+      // So: never index a request claiming ANY AI fetcher (verified or not), never index a
+      // browser-initiated subresource, and index the rest BELOW every blocking floor (conf 40 <
+      // ips.csv 50 < edge 80). A secret probe is an observation, not block-grade evidence.
+      const why = secretProbeNoIndexReason(request, ua, verifiedCrawler);
+      if (honeypotsEnabled && !why) ctx.waitUntil(indexHoneypotHit(env, request, cf, { ...secretProbe, confidence: SECRET_PROBE_CONFIDENCE }));
+      else if (why) console.log(JSON.stringify({ shield: 'secret-probe', indexed: false, why, path, ua: ua.substring(0, 80), asn: cf.asn }));
       return secretProbeResponse();
     }
 

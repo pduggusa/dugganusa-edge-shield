@@ -20,8 +20,8 @@ const slice = (from, to) => {
 };
 const code = slice('const CANARY_PATHS', 'function honeypotResponse');
 const mod = await import('data:text/javascript,' + encodeURIComponent(
-  code + '\nexport { getCanary, getApplianceCanary, applianceCanariesEnabled, netscalerResponse, fortigateResponse, ivantiResponse, ciscoResponse, paloResponse, sonicwallResponse, getSecretProbe, secretProbeResponse, safeDecode };'));
-const { getCanary, getApplianceCanary, applianceCanariesEnabled, netscalerResponse, fortigateResponse, ivantiResponse, ciscoResponse, paloResponse, sonicwallResponse, getSecretProbe, secretProbeResponse } = mod;
+  code + '\nexport { getCanary, getApplianceCanary, applianceCanariesEnabled, netscalerResponse, fortigateResponse, ivantiResponse, ciscoResponse, paloResponse, sonicwallResponse, getSecretProbe, secretProbeResponse, secretProbeNoIndexReason, safeDecode };'));
+const { getCanary, getApplianceCanary, applianceCanariesEnabled, netscalerResponse, fortigateResponse, ivantiResponse, ciscoResponse, paloResponse, sonicwallResponse, getSecretProbe, secretProbeResponse, secretProbeNoIndexReason } = mod;
 
 // The same precedence the fetch handler uses.
 const pick = (env, host, path) =>
@@ -194,7 +194,17 @@ const sp = secretProbeResponse();
 check('secret probe answers plain 404', sp.status, 404);
 check('secret probe serves no decoy content', (await sp.text()).trim(), 'Not found');
 check('handler 404s secret probes before the crawler-exempt canary block', src.indexOf('const secretProbe =') > 0 && src.indexOf('const secretProbe =') < src.indexOf('const canary = (honeypotsEnabled && !verifiedCrawler)'), true);
-check('verified crawlers are never indexed on secret probes', /if \(honeypotsEnabled && !verifiedCrawler\) ctx\.waitUntil\(indexHoneypotHit\(env, request, cf, secretProbe\)\)/.test(src), true);
+// Feed-poisoning guard (security review of 1ed45ee)
+const req = (h = {}) => new Request('https://www.dugganusa.com/key.pem', { headers: h });
+check('verified crawler: not indexed', secretProbeNoIndexReason(req(), 'Googlebot', true), 'verified-crawler');
+check('UNVERIFIED ChatGPT-User: not indexed', secretProbeNoIndexReason(req(), 'Mozilla/5.0; compatible; ChatGPT-User/1.0', false), 'ai-fetcher-ua');
+check('Perplexity-User (not in verify list): not indexed', secretProbeNoIndexReason(req(), 'Mozilla/5.0 (compatible; Perplexity-User/1.0)', false), 'ai-fetcher-ua');
+check('img-tag induced fetch: not indexed', secretProbeNoIndexReason(req({ 'sec-fetch-site': 'cross-site', 'sec-fetch-dest': 'image' }), 'Mozilla/5.0 Chrome/130', false), 'browser-induced');
+check('same-origin subresource: not indexed', secretProbeNoIndexReason(req({ 'sec-fetch-site': 'same-origin', 'sec-fetch-dest': 'script' }), 'Mozilla/5.0', false), 'browser-subresource');
+check('plain scanner (no fetch metadata): indexed', secretProbeNoIndexReason(req(), 'python-requests/2.31', false), null);
+check('typed-URL navigation: indexed', secretProbeNoIndexReason(req({ 'sec-fetch-site': 'none', 'sec-fetch-dest': 'document' }), 'Mozilla/5.0', false), null);
+check('secret probes index BELOW the ips.csv floor', /SECRET_PROBE_CONFIDENCE = 40;/.test(src) && /confidence: canary\.confidence \?\? 95/.test(src), true);
+check('handler indexes only when no no-index reason', /if \(honeypotsEnabled && !why\) ctx\.waitUntil\(indexHoneypotHit\(env, request, cf, \{ \.\.\.secretProbe, confidence: SECRET_PROBE_CONFIDENCE \}\)\)/.test(src), true);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

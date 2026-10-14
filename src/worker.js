@@ -821,6 +821,24 @@ const CISCO_EXPLOIT_MARKERS = ['logon_hash', '/../', '%2e%2e', 'installclusterst
 const PALO_CANARY_PREFIXES = ['/global-protect/', '/ssl-vpn/', '/php/', '/unauth/'];
 const PALO_EXPLOIT_MARKERS = ['hipreport.esp', 'ztp_gate.php', '%252e%252e', '/../', '%2e%2e', 'uid.php'];
 
+// ================================================================
+// APPLIANCE CANARIES — SonicWall SMA1000 (2026-10-14, 2.12.0)
+// ================================================================
+// CVE-2026-102255: pre-auth SSRF in the SMA1000 Appliance WorkPlace interface, CVSS 10.0,
+// hotfixed 2026-10-06 (SNWLID-2026-0017), exploitation attempts from 2026-10-08 (Previdian,
+// Defused): crafted OPTIONS requests at the WorkPlace "Extraweb" interface aimed at the
+// appliance's internal CouchDB (127.0.0.1:5984, _rewrite design docs, Basic admin:admin).
+// ttp-check 2026-10-14 for Extraweb|workplace|5984: 0 in 17,241 blocks, 37,738 canary docs and
+// 1,602 origin captures since 09-14, and canary-gap had SMA1000 blind on 2 KEV CVEs whose
+// harvested PoCs hit /__api__/login. We run no SonicWall, so that zero was blindness.
+// The exact exploit URL is not published, so besides the WorkPlace and /__api__/ prefixes the
+// CouchDB SSRF markers trap ANYWHERE on our zones (nothing of ours serves /_rewrite, :5984 or
+// "extraweb"). Bare 5984 is NOT a marker: Wix slugs carry CVE numbers like cve-2026-15984.
+// NOT /api/ or /_api/: ours (analytics) and Wix's (www).
+const SONICWALL_CANARY_PREFIXES = ['/workplace/', '/__api__/'];
+const SONICWALL_ANYWHERE_MARKERS = ['extraweb', '/_rewrite', ':5984', '%3a5984'];
+const SONICWALL_EXPLOIT_MARKERS = ['/_rewrite', ':5984', '%3a5984', '127.0.0.1', '%2e%2e', '/../'];
+
 function getApplianceCanary(path) {
   // ENCODED-PATH MARKER: a hit whose RAW path differs from its decoded form is the
   // WAF-bypass variant, which is worth knowing separately from a plain probe.
@@ -848,6 +866,12 @@ function getApplianceCanary(path) {
       const exploit = PALO_EXPLOIT_MARKERS.some(m => path.toLowerCase().includes(m) || lower.includes(m));
       const gp = withSlash.startsWith('/global-protect/') || withSlash.startsWith('/ssl-vpn/');
       return { type: 'paloalto_scan', fake: gp ? 'globalprotect' : 'panos', product: gp ? 'paloalto-globalprotect' : 'paloalto-panos-mgmt',
+        ...(exploit ? { exploit_path: true } : {}), ...(encoded ? { encoded_path: true } : {}) };
+    }
+    if (SONICWALL_CANARY_PREFIXES.some(pre => withSlash.startsWith(pre)) ||
+        SONICWALL_ANYWHERE_MARKERS.some(m => lower.includes(m))) {
+      const exploit = SONICWALL_EXPLOIT_MARKERS.some(m => path.toLowerCase().includes(m) || lower.includes(m));
+      return { type: 'sonicwall_scan', fake: 'sonicwall', product: 'sonicwall-sma1000',
         ...(exploit ? { exploit_path: true } : {}), ...(encoded ? { encoded_path: true } : {}) };
     }
     if (IVANTI_CANARY_PREFIXES.some(pre => withSlash.startsWith(pre))) {
@@ -977,7 +1001,19 @@ function ivantiResponse() {
   });
 }
 
+// Minimal original markup: a WorkPlace-style sign-in. No SonicWall assets are copied. The
+// /__api__/ surface answers 401 JSON, which is what the SMA1000 login API returns unauthenticated.
+function sonicwallResponse(lower) {
+  if (lower.startsWith('/__api__/')) {
+    return new Response(JSON.stringify({ status: 'error', message: 'Unauthorized' }), {
+      status: 401, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
+  }
+  const body = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>WorkPlace - Log in</title></head><body><form method="post" action="/__api__/login" name="loginForm" autocomplete="off"><label for="username">Username</label><input type="text" id="username" name="username"><label for="password">Password</label><input type="password" id="password" name="password"><input type="submit" value="Log in"></form></body></html>`;
+  return new Response(body, { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } });
+}
+
 function honeypotResponse(request, cf, canary) {
+  if (canary.fake === 'sonicwall') return sonicwallResponse(new URL(request.url).pathname.toLowerCase());
   if (canary.fake === 'netscaler') return netscalerResponse();
   if (canary.fake === 'fortigate') return fortigateResponse();
   if (canary.fake === 'peoplesoft') return peoplesoftResponse();
@@ -1037,6 +1073,12 @@ async function indexHoneypotHit(env, request, cf, canary) {
     honeypot_meta: {
       ...(canary.product ? { product: canary.product } : {}),
       ...(canary.encoded_path ? { encoded_path: true } : {}),
+      // exploit_path was computed for Ivanti/Cisco/Palo/SharePoint since 2.10.0 but never
+      // persisted here, so every exploit marker was dropped before indexing. Fixed 2.12.0.
+      ...(canary.exploit_path ? { exploit_path: true } : {}),
+      // A default-credential Basic header (admin:admin, seen in the SMA1000 CouchDB SSRF probes)
+      // is recorded as a boolean only; the credential itself is never stored.
+      ...(/^[Bb]asic\s+YWRtaW46YWRtaW4=?$/.test(request.headers.get('authorization') || '') ? { default_creds: true } : {}),
       path: new URL(request.url).pathname,
       method: request.method,
       ua: request.headers.get('user-agent') || '',

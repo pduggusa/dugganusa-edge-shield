@@ -2,6 +2,12 @@
 
 All notable changes to DugganUSA Edge Shield are documented here.
 
+## 2.12.0 — 2026-10-14
+
+- **SonicWall SMA1000 canaries (CVE-2026-102255).** Pre-auth SSRF in the Appliance WorkPlace interface, CVSS 10.0, hotfixed 2026-10-06 (SNWLID-2026-0017). Exploitation attempts began 2026-10-08: crafted OPTIONS requests at the WorkPlace "Extraweb" interface aimed at the appliance's internal CouchDB (`127.0.0.1:5984`, `_rewrite`, Basic `admin:admin`). `/workplace/` answers with a minimal original WorkPlace sign-in. `/__api__/` (the login API that canary-gap's harvested SMA1000 KEV PoCs hit) answers 401 JSON. The exact exploit URL is not public, so the CouchDB SSRF markers (`extraweb`, `/_rewrite`, `:5984`, `%3a5984`) trap anywhere on our zones; bare `5984` does not, because blog slugs carry CVE numbers. Tagged `sonicwall_scan` / `sonicwall-sma1000`, with `exploit_path` on the SSRF markers. Closes a measured gap: `ttp-check` found 0 matches for `Extraweb|workplace|5984` in 17,241 blocks, 37,738 canary docs and 1,602 origin captures since 2026-09-14, because we run no SonicWall. Own zones only by default (`APPLIANCE_CANARIES`).
+- **Fix: `exploit_path` is now indexed.** 2.10.0 and 2.11.0 computed `exploit_path` for Ivanti, Cisco, Palo Alto and SharePoint hits, but the indexer saved only `encoded_path`, so every exploit marker was dropped before it reached `honeypot_meta`.
+- **`default_creds`.** A hit carrying a Basic `admin:admin` header is flagged `default_creds: true`. The credential itself is never stored.
+
 ## 2.11.0 — 2026-10-13
 
 - **Cisco and Palo Alto Networks canaries, the first packs picked by measurement rather than after a KEV listing.** `scripts/canary-gap.mjs` in the platform repo joined 2,318 exploit-harvester endpoint rules to CISA KEV and these matchers. Cisco had no canary for any of its 10 KEV CVEs with harvested web paths (Cisco holds 100 KEV entries); Palo Alto had none for its 3 (15 KEV entries). Overall KEV coverage of harvested paths went from 26/137 to 37/137.

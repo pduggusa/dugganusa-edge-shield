@@ -20,8 +20,8 @@ const slice = (from, to) => {
 };
 const code = slice('const CANARY_PATHS', 'function honeypotResponse');
 const mod = await import('data:text/javascript,' + encodeURIComponent(
-  code + '\nexport { getCanary, getApplianceCanary, applianceCanariesEnabled, netscalerResponse, fortigateResponse, ivantiResponse, ciscoResponse, paloResponse, safeDecode };'));
-const { getCanary, getApplianceCanary, applianceCanariesEnabled, netscalerResponse, fortigateResponse, ivantiResponse, ciscoResponse, paloResponse } = mod;
+  code + '\nexport { getCanary, getApplianceCanary, applianceCanariesEnabled, netscalerResponse, fortigateResponse, ivantiResponse, ciscoResponse, paloResponse, sonicwallResponse, safeDecode };'));
+const { getCanary, getApplianceCanary, applianceCanariesEnabled, netscalerResponse, fortigateResponse, ivantiResponse, ciscoResponse, paloResponse, sonicwallResponse } = mod;
 
 // The same precedence the fetch handler uses.
 const pick = (env, host, path) =>
@@ -150,6 +150,30 @@ check('GlobalProtect prelogin answers XML', (pre.headers.get('content-type') || 
 const gp = paloResponse('globalprotect', '/global-protect/login.esp');
 check('GlobalProtect portal title', (await gp.text()).includes('<title>GlobalProtect Portal</title>'), true);
 check('PAN-OS mgmt PHPSESSID', /^PHPSESSID=/.test(paloResponse('panos', '/php/login.php').headers.get('set-cookie') || ''), true);
+
+// SonicWall SMA1000 (2.12.0) — CVE-2026-102255 WorkPlace/Extraweb CouchDB SSRF
+for (const p of ['/workplace/', '/workplace/access/home', '/WorkPlace/', '/__api__/login', '/__api__/logout',
+                 '/__extraweb__/x', '/workplace/extraweb/_rewrite', '/foo/_rewrite', '/x?u=http://127.0.0.1:5984/',
+                 '/proxy/127.0.0.1%3A5984/_utils']) {
+  check(`SonicWall trap: ${p}`, kind(pick({}, 'analytics.dugganusa.com', p)), 'sonicwall_scan');
+}
+check('SonicWall product tag', getApplianceCanary('/workplace/').product, 'sonicwall-sma1000');
+check('SonicWall exploit marker on _rewrite', getApplianceCanary('/workplace/extraweb/_db/_design/x/_rewrite').exploit_path, true);
+check('SonicWall exploit marker on :5984', getApplianceCanary('/extraweb/http://127.0.0.1:5984/').exploit_path, true);
+check('plain WorkPlace probe carries no exploit marker', getApplianceCanary('/workplace/access/home').exploit_path, undefined);
+for (const p of ['/post/cve-2026-15984-something', '/api/v1/search/stats', '/_api/blog', '/workplaces', '/__api', '/api/login',
+                 '/post/extra-web-security']) {
+  check(`not a SonicWall trap: ${p}`, kind(pick({}, 'www.dugganusa.com', p)) === 'sonicwall_scan', false);
+}
+check('customer SonicWall NOT trapped by default', kind(pick({}, 'vpn.customer.example', '/workplace/')), null);
+check('customer opt-in traps SonicWall', kind(pick({ APPLIANCE_CANARIES: 'true' }, 'vpn.customer.example', '/__api__/login')), 'sonicwall_scan');
+check('Ivanti still wins its own prefix', kind(pick({}, 'www.dugganusa.com', '/dana-na/auth/')), 'ivanti_scan');
+const sw = sonicwallResponse('/workplace/');
+check('WorkPlace decoy 200 + title', sw.status === 200 && (await sw.text()).includes('<title>WorkPlace - Log in</title>'), true);
+check('/__api__/ decoy answers 401 JSON', sonicwallResponse('/__api__/login').status, 401);
+// The indexer must persist exploit_path (dropped before 2.12.0) and never the credential itself.
+check('indexer persists exploit_path', /canary\.exploit_path \? \{ exploit_path: true \}/.test(src), true);
+check('indexer stores default_creds as a boolean only', /default_creds: true/.test(src) && !/default_creds: request/.test(src), true);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

@@ -157,6 +157,9 @@ for (const p of ['/workplace/', '/workplace/access/home', '/WorkPlace/', '/__api
                  '/proxy/127.0.0.1%3A5984/_utils']) {
   check(`SonicWall trap: ${p}`, kind(pick({}, 'analytics.dugganusa.com', p)), 'sonicwall_scan');
 }
+// Previdian's published 10-09 capture: OPTIONS to /__EXTRAWEB__TRANSLATE/.../../u/_design/<id>/_rewrite/.../__extraweb__
+const prev = getApplianceCanary('/__EXTRAWEB__TRANSLATE/a/../u/_design/abc/_rewrite/x/__extraweb__');
+check('Previdian capture shape traps with exploit marker', prev && prev.type === 'sonicwall_scan' && prev.exploit_path === true, true);
 check('SonicWall product tag', getApplianceCanary('/workplace/').product, 'sonicwall-sma1000');
 check('SonicWall exploit marker on _rewrite', getApplianceCanary('/workplace/extraweb/_db/_design/x/_rewrite').exploit_path, true);
 check('SonicWall exploit marker on :5984', getApplianceCanary('/extraweb/http://127.0.0.1:5984/').exploit_path, true);

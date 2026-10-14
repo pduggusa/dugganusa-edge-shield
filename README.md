@@ -2,20 +2,20 @@
 
 # DugganUSA Edge Shield
 
-### Enterprise threat intelligence at the Cloudflare edge. Free. Open source.
+**You do you. I do me. We share contexts.**
+
+Your origin keeps its core; the Worker enforces the DugganUSA Feed's context at your edge, before traffic reaches you.
+
+### Threat intelligence you can check, enforced at the Cloudflare edge. Free. Open source.
 
 [![MIT License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Cloudflare Workers](https://img.shields.io/badge/Cloudflare-Workers-F38020?logo=cloudflare&logoColor=white)](https://workers.cloudflare.com/)
-[![IOCs](https://img.shields.io/badge/Distinct%20IOCs-653%2C342-10b981)](https://analytics.dugganusa.com/api/v1/stix-feed)
+[![IOCs](https://img.shields.io/badge/IOC%20counts-live-10b981)](https://analytics.dugganusa.com/api/v1/search/stats)
 [![Reach](https://img.shields.io/badge/Reach%20vs%20List--only-30x-818cf8)](https://analytics.dugganusa.com/stix/pricing)
 [![STIX 2.1](https://img.shields.io/badge/STIX-2.1-4f46e5)](https://analytics.dugganusa.com/api/v1/stix-feed)
 
-**Compliance & Posture:**
+**Posture:**
 
-[![CMMC L2](https://img.shields.io/badge/CMMC%20L2-71%25-a5b4fc)](https://github.com/pduggusa/enterprise-extraction-platform/tree/main/compliance)
-[![SOC 2](https://img.shields.io/badge/SOC%202%20Type%202-81%25-a5b4fc)](https://github.com/pduggusa/enterprise-extraction-platform/tree/main/compliance)
-[![GovRAMP](https://img.shields.io/badge/GovRAMP-Foundation%20Ready-a5b4fc)](https://github.com/pduggusa/enterprise-extraction-platform/tree/main/compliance/govramp)
-[![CISA AIS](https://img.shields.io/badge/CISA%20AIS-Data%20Aggregator-4ade80)](https://www.cisa.gov/ais)
 [![SSL Labs](https://img.shields.io/badge/SSL%20Labs-A%2B-4ade80)](https://www.ssllabs.com/ssltest/analyze.html?d=analytics.dugganusa.com)
 [![Headers](https://img.shields.io/badge/Security%20Headers-7%2F7-4ade80)](https://securityheaders.com/?q=analytics.dugganusa.com)
 [![DNSSEC](https://img.shields.io/badge/DNSSEC-Enabled-4ade80)](https://dnssec-analyzer.verisignlabs.com/dugganusa.com)
@@ -26,7 +26,7 @@
 
 Behavioural blocking at the edge, not just a list. Over 16 measured days the shield stopped 1,638 distinct attacking hosts where a blocklist working alone would have stopped 55 — and 81.3% of the hosts that actually attacked were on no blocklist anywhere.
 
-[Get Your Free API Key](https://analytics.dugganusa.com/stix/register) &nbsp;&bull;&nbsp; [STIX Feed](https://analytics.dugganusa.com/api/v1/stix-feed) &nbsp;&bull;&nbsp; [Blog](https://www.dugganusa.com) &nbsp;&bull;&nbsp; [AIPM](https://aipmsec.com)
+[Get Your Free API Key](https://analytics.dugganusa.com/stix/register) &nbsp;&bull;&nbsp; [DugganUSA Feed](https://analytics.dugganusa.com/stix) &nbsp;&bull;&nbsp; [Blog](https://www.dugganusa.com) &nbsp;&bull;&nbsp; [AIPM](https://aipmsec.com)
 
 ---
 
@@ -146,7 +146,7 @@ Build geo dashboards, detect anomalies, log city-level analytics — all from he
 
 ## The Intelligence Behind It
 
-Edge Shield is powered by the same STIX 2.1 feed that Fortune 500 security teams consume:
+Edge Shield enforces the DugganUSA Feed (STIX 2.1):
 
 <div align="center">
 
@@ -154,10 +154,6 @@ Edge Shield is powered by the same STIX 2.1 feed that Fortune 500 security teams
 |:------:|:-----:|
 | **IOC records indexed** | live: [/api/v1/search/stats](https://analytics.dugganusa.com/api/v1/search/stats) (records are point observations, not distinct indicators) |
 | **Reach vs list-only defence** | 30x (1,638 hosts vs 55) |
-| **Autonomous Decisions** | 5,764,156 |
-| **Threats Blocked** | 2,038,293 |
-| **Adversary Profiles** | 361 |
-| **Blog Posts** | 1,655 |
 
 </div>
 
@@ -202,7 +198,7 @@ We went from "motorcycle oil company" (what GPT-4o thought we were) to accurate 
 
 [**Audit Your Brand Free →**](https://aipmsec.com)
 
-*755+ audits completed. First tool to score llms.txt and NLWeb. Wix launched a competing feature — we took that as validation.*
+*Scores llms.txt and NLWeb alongside what the models say.*
 
 </div>
 
@@ -212,12 +208,14 @@ We went from "motorcycle oil company" (what GPT-4o thought we were) to accurate 
 
 The Worker is **free and open source forever.** The intelligence is tiered:
 
-| Tier | Price | IOC Refresh | Best For |
-|:----:|:-----:|:-----------:|:---------|
-| **Free** | $0/mo | 24h, 48h delayed | Personal sites, blogs, side projects |
-| **Starter** | $45/mo | 1h, real-time | Small business, startups |
-| **Professional** | $495/mo | 15m, real-time + cross-index | SOC teams, MSPs |
-| **Enterprise** | $2,495/mo | 5m, full Medusa Suite | Fortune 500, government |
+| Tier | Price |
+|:----:|:-----:|
+| **Free** | $0, 10 queries/day |
+| **Shield** | $24/mo |
+| **Pro** | $99/mo or $948/yr |
+| **Enterprise** | $995/mo or $9,950/yr |
+
+Current limits and prices: [analytics.dugganusa.com/stix/pricing](https://analytics.dugganusa.com/stix/pricing).
 
 <div align="center">
 
@@ -316,23 +314,22 @@ scanner. If you serve any of those paths legitimately, disable honeypots or edit
 
 | Product | What It Does |
 |:--------|:-------------|
-| [**AIPM**](https://aipmsec.com) | Audit how AI models perceive your brand — 0% to 23% ChatGPT visibility in 3 days |
-| [**STIX Feed**](https://analytics.dugganusa.com/stix/pricing) | Free feed, Splunk ES + OPNsense + MISP, TAXII 2.1 (discovery is open, no key needed) |
-| [**Epstein Files**](https://epstein.dugganusa.com) | 400,750 DOJ documents, full-text searchable, free |
-| [**Butterbot Tank**](https://github.com/pduggusa/butterbot-tank) | Autonomous site survey robot — WiFi heatmaps, NDAA detection, AR HUD |
-| [**Blog**](https://www.dugganusa.com) | 1,655 threat intelligence posts and counting |
+| [**DugganUSA Feed**](https://analytics.dugganusa.com/stix) | Threat-intel feed: STIX/TAXII, CSV, MISP |
+| [**Jeevesus**](https://analytics.dugganusa.com/jeevesus.html) | Search MCP over the corpus |
+| [**Dredd**](https://github.com/pduggusa/dredd-mcp) | Pre-flight verdict on MCP servers and their dependency trees |
+| [**AIPM**](https://aipmsec.com) | AI Presence Management: what AIs say about you |
+| [**FinOps**](https://finops.dugganusa.com) | Enterprise Metering: what AI agents and API calls actually cost |
+| [**Research**](https://www.dugganusa.com/blog) | Threat intelligence research with receipts |
 
 ---
 
 <div align="center">
 
-**DugganUSA LLC** — Minneapolis, MN &nbsp;&bull;&nbsp; v2.5.0
+**DugganUSA LLC** — Minnesota &nbsp;&bull;&nbsp; v2.5.0
 
-Cybersecurity threat intelligence. Built with Claude.
+Threat intelligence you can check. Built with Claude. Contact: help@dugganusa.com
 
 D-U-N-S: 14-363-3562 &nbsp;&bull;&nbsp; SAM.gov UEI: TP9FY7262K87
-
-CMMC Level 2: 78/110 NIST SP 800-171 controls on $600/month
 
 *"The boring architecture is the safe architecture."*
 
@@ -345,7 +342,7 @@ CMMC Level 2: 78/110 NIST SP 800-171 controls on $600/month
 <!-- DUGGANUSA-FAMILY-FOOTER-V1 -->
 ## DugganUSA Defender Family
 
-Same threat corpus, surfaced wherever you live. Open source, MIT licensed, receipts on every repo.
+Same DugganUSA Feed, surfaced wherever you live. Open source, MIT licensed, receipts on every repo.
 
 | Plugin | Surface |
 |---|---|
@@ -362,8 +359,8 @@ Same threat corpus, surfaced wherever you live. Open source, MIT licensed, recei
 | [dugganusa-cli](https://github.com/pduggusa/dugganusa-cli) | CLI scanner |
 | [dugganusa-chrome](https://github.com/pduggusa/dugganusa-chrome) | Chrome extension |
 | [dugganusa-action](https://github.com/pduggusa/dugganusa-action) | GitHub Action |
-| [dredd-mcp](https://github.com/pduggusa/dredd-mcp) | Pre-flight MCP security (this repo) |
+| [dredd-mcp](https://github.com/pduggusa/dredd-mcp) | Dredd: pre-flight MCP security |
 
-Backed by the live DugganUSA threat intel platform: [analytics.dugganusa.com](https://analytics.dugganusa.com).
+Backed by the [DugganUSA Feed](https://analytics.dugganusa.com/stix). Numbers are live: [/api/v1/search/stats](https://analytics.dugganusa.com/api/v1/search/stats). Pricing: [analytics.dugganusa.com/stix/pricing](https://analytics.dugganusa.com/stix/pricing). Contact: help@dugganusa.com.
 
-_Jeevesus saves. Dredd judges._
+_Threat intelligence you can check._

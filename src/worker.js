@@ -370,6 +370,16 @@ function ptrName(ip) {
  * IPv6 is fully supported via nibble-form PTR (see ptrName) rather than skipped,
  * because Meta's crawler is largely IPv6 and "skip" previously meant "fail open."
  */
+/**
+ * Cloudflare's verified-bot category for this request, normalized: a category string
+ * ("AI Crawler", "Search Engine Crawler", ...) when Cloudflare verified the client, else null.
+ * Never throws; never reads a client header.
+ */
+function cfVerifiedCategory(cf) {
+  const c = cf && typeof cf.verifiedBotCategory === 'string' ? cf.verifiedBotCategory.trim() : '';
+  return c && c !== 'Not Verified' ? c.slice(0, 64) : null;
+}
+
 async function isVerifiedCrawler(request, cf) {
   const ua = (request.headers.get('user-agent') || '').toLowerCase();
   if (!ua) return false;
@@ -1194,7 +1204,12 @@ async function indexHoneypotHit(env, request, cf, canary) {
       colo: cf.colo, // CF datacenter that handled the request
       tls_version: cf.tlsVersion,
       http_protocol: cf.httpProtocol,
-      bot_score: cf.botManagement?.score,
+      // Cloudflare's verdict at capture time (2.14.2). bot_score was logged until 2.14.1 but
+      // cf.botManagement.score does not exist without Enterprise Bot Management: it was null on
+      // 4,149 of 4,149 canary hits (2026-10-09..16). verifiedBotCategory is populated on every
+      // plan when Cloudflare verified the client; '' (or absent) means not verified. Recorded
+      // as a comparator only: the canary verdict never depends on it.
+      cf_verified_bot_category: cfVerifiedCategory(cf),
     }
   };
 

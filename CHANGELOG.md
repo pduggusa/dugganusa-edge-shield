@@ -2,6 +2,10 @@
 
 All notable changes to DugganUSA Edge Shield are documented here.
 
+## 2.14.2 — 2026-10-16
+
+- **Canary hits carry Cloudflare's verdict.** `honeypot_meta.bot_score` is gone: `cf.botManagement.score` only exists with Enterprise Bot Management, so it was null on 4,149 of 4,149 canary hits in the week to 2026-10-16. In its place, `honeypot_meta.cf_verified_bot_category` records Cloudflare's verified-bot category at capture time (e.g. `AI Crawler`), or `null` when Cloudflare did not verify the client. It is a comparator only; nothing in the canary or block path reads it. Tested by `node test-honeypot-meta.mjs`.
+
 ## 2.14.1 — 2026-10-16
 
 - Copy only: Organization schema description and README carry the brand short form ("We watched the open internet, then built the membrane between your AI agents and everything they install, call, read and obey."). American spelling in README. No behavior change.

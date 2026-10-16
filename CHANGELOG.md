@@ -2,6 +2,10 @@
 
 All notable changes to DugganUSA Edge Shield are documented here.
 
+## 2.14.1 — 2026-10-16
+
+- Copy only: Organization schema description and README carry the brand short form ("We watched the open internet, then built the membrane between your AI agents and everything they install, call, read and obey."). American spelling in README. No behavior change.
+
 ## 2.14.0 — 2026-10-14
 
 - **Origin edge secret (DugganUSA-only; customers leave it unset).** The analytics origin believed `cf-connecting-ip` from any connection, and its public Azure FQDN can be hit directly with a forged Host and a forged `cf-connecting-ip`, so every per-IP control at the origin (rate limits, docs-gate, behavioral blocker, auto-block, honeypot attribution) could be dodged or aimed at a victim's address. The worker now adds `x-dugganusa-edge: <ORIGIN_EDGE_SECRET>` to every request it forwards to an origin in `ORIGIN_EDGE_HOSTS` (default `analytics.dugganusa.com`): the main path, the `embed.js` pass-through and the `track` beacon. It is never sent to a third-party origin (www/apex are Wix), never on the worker's own API calls (feed pulls, honeypot and feed-hit reports), and never when the secret is unset; then a config warning is logged once per isolate, only for a listed host. A client-supplied copy of the header is stripped on every forward. The secret is a `wrangler secret`, never in `wrangler.toml` or code. Sensor hosts stay untouched by design. Tested by `node test-origin-edge.mjs`.

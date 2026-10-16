@@ -6,6 +6,8 @@
 
 Your origin keeps its core; the Worker enforces the DugganUSA Feed's context at your edge, before traffic reaches you.
 
+**We watched the open internet, then built the membrane between your AI agents and everything they install, call, read and obey.** Edge Shield is the membrane's edge plane.
+
 ### Threat intelligence you can check, enforced at the Cloudflare edge. Free. Open source.
 
 [![MIT License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
@@ -22,9 +24,9 @@ Your origin keeps its core; the Worker enforces the DugganUSA Feed's context at 
 [![Cosign](https://img.shields.io/badge/Container%20Images-Cosign%20Signed-4ade80)](https://github.com/sigstore/cosign)
 [![SBOM](https://img.shields.io/badge/SBOM-CycloneDX-4ade80)](https://github.com/pduggusa/enterprise-extraction-platform/tree/main/compliance/evidence/sbom)
 
-**DugganUSA's threat feed at your edge, plus behavioural blocking. Deploy in 30 seconds.**
+**DugganUSA's threat feed at your edge, plus behavioral blocking. Deploy in 30 seconds.**
 
-Behavioural blocking at the edge, not just a list. Over 16 measured days the shield stopped 1,638 distinct attacking hosts where a blocklist working alone would have stopped 55 — and 81.3% of the hosts that actually attacked were on no blocklist anywhere.
+Behavioral blocking at the edge, not just a list. Over 16 measured days the shield stopped 1,638 distinct attacking hosts where a blocklist working alone would have stopped 55 — and 81.3% of the hosts that actually attacked were on no blocklist anywhere.
 
 [Get Your Free API Key](https://analytics.dugganusa.com/stix/register) &nbsp;&bull;&nbsp; [DugganUSA Feed](https://analytics.dugganusa.com/stix) &nbsp;&bull;&nbsp; [Blog](https://www.dugganusa.com) &nbsp;&bull;&nbsp; [AIPM](https://aipmsec.com)
 
@@ -103,7 +105,7 @@ scripts/verify.sh --product www.yourdomain.com --mode observe
 
 `wrangler.toml` is DugganUSA's own deployment. Don't deploy it; use your `wrangler.local.toml` (gitignored).
 
-**That's it.** Your site is protected by the DugganUSA feed — plus behavioural blocking, which is the half a list cannot do.
+**That's it.** Your site is protected by the DugganUSA feed — plus behavioral blocking, which is the half a list cannot do.
 
 ---
 
@@ -159,7 +161,7 @@ Edge Shield enforces the DugganUSA Feed (STIX 2.1):
 
 </div>
 
-We don't just aggregate — we hunt. 18 documented supply chain attacks (Pattern 38). NrodeCodeRAT discovered behaviourally, before any blocklist carried it. IRGC target analysis on 18 US tech companies. FBI wiretap breach analysis published same-day.
+We don't just aggregate — we hunt. 18 documented supply chain attacks (Pattern 38). NrodeCodeRAT discovered behaviorally, before any blocklist carried it. IRGC target analysis on 18 US tech companies. FBI wiretap breach analysis published same-day.
 
 ---
 
@@ -277,7 +279,7 @@ When a request hits one, `indexHoneypotHit()` sends us:
 
 That is visitor data and site data. **An earlier version of this README stated we
 see none of it. That was wrong** — the code always sent it. We corrected the
-document rather than quietly changing the behaviour, because customers made
+document rather than quietly changing the behavior, because customers made
 deployment decisions against the old text.
 
 **If you operate in the EU or handle personal data:** an IP address plus

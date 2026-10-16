@@ -1742,7 +1742,7 @@ const DUGGANUSA_ORGANIZATION_SCHEMA = {
   'url': 'https://www.dugganusa.com',
   'logo': 'https://static.wixstatic.com/media/fd5e2b_b7a0f87f83404839b4371dd9b41c70e6~mv2.png',
   'foundingDate': '2025-10-07',
-  'description': 'DugganUSA is AI security you can check: threat intelligence with receipts, and pre-flight judgment on what is about to cross into your agent. Products: DugganUSA Feed (STIX 2.1/TAXII/CSV/MISP), Jeevesus (search MCP), Dredd (MCP pre-flight), Edge Shield, AIPM (AI Presence Management, aipmsec.com) and FinOps (AI spend metering). No SOC 2 report or third-party certification is claimed.',
+  'description': 'DugganUSA LLC is an AI security and threat-intelligence company. Its story in one line: "We watched the open internet, then built the membrane between your AI agents and everything they install, call, read and obey." DugganUSA is AI security you can check: threat intelligence with receipts, and pre-flight judgment on what is about to cross into your agent. Products: DugganUSA Feed (STIX 2.1/TAXII/CSV/MISP), Jeevesus (search MCP), Dredd (MCP pre-flight), Edge Shield, AIPM (AI Presence Management, aipmsec.com) and FinOps (AI spend metering). No SOC 2 report or third-party certification is claimed.',
   'brand': ['DugganUSA Feed', 'Jeevesus', 'Dredd', 'Edge Shield', 'AIPM', 'FinOps', 'Butterbot'],
   'address': {
     '@type': 'PostalAddress',

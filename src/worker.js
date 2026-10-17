@@ -1856,21 +1856,22 @@ const TRUST_REDIRECTS = {
   '/contact-us': '/about',
   '/terms': 'https://analytics.dugganusa.com/terms',
   '/privacy': '/post/dugganusa-privacy-policy',
-  '/pricing': 'https://analytics.dugganusa.com/pricing'
+  '/pricing': 'https://analytics.dugganusa.com/pricing',
+  '/research': '/blog'   // nav label 'Research' = the www blog (2026-10-16)
 };
 const TRUST_FOOTER_HTML =
-  '<footer id="dg-trust" style="clear:both;position:relative;z-index:6;background:#07090c;color:#9aa5b1;' +
+  '<footer id="dg-trust" style="clear:both;position:relative;z-index:6;background:#f3f4f8;color:#444c63;' +
   'font:13px/1.7 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif;' +
-  'text-align:center;padding:18px 16px;border-top:1px solid #232a33">' +
+  'text-align:center;padding:18px 16px;border-top:1px solid #e3e6ee">' +
   '<span>&copy; 2026 DugganUSA LLC, a Minnesota limited liability company &middot; Minnetrista, Minnesota, USA ' +
   '&middot; D-U-N-S 14-363-3562</span><br>' +
-  '<a style="color:#5ee6a0" href="/about">About</a> &middot; ' +
-  '<a style="color:#5ee6a0" href="mailto:help@dugganusa.com">Contact: help@dugganusa.com</a> &middot; ' +
-  '<a style="color:#5ee6a0" href="/post/dugganusa-privacy-policy">Privacy</a> &middot; ' +
-  '<a style="color:#5ee6a0" href="https://analytics.dugganusa.com/terms">Terms</a> &middot; ' +
-  '<a style="color:#5ee6a0" href="https://analytics.dugganusa.com/pricing">Pricing</a> &middot; ' +
-  '<a style="color:#5ee6a0" href="https://www.linkedin.com/company/dugganusa-llc" rel="noopener">LinkedIn</a> &middot; ' +
-  '<a style="color:#5ee6a0" href="https://github.com/pduggusa" rel="noopener">GitHub</a>' +
+  '<a style="color:#4f46e5" href="/about">About</a> &middot; ' +
+  '<a style="color:#4f46e5" href="mailto:help@dugganusa.com">Contact: help@dugganusa.com</a> &middot; ' +
+  '<a style="color:#4f46e5" href="/post/dugganusa-privacy-policy">Privacy</a> &middot; ' +
+  '<a style="color:#4f46e5" href="https://analytics.dugganusa.com/terms">Terms</a> &middot; ' +
+  '<a style="color:#4f46e5" href="https://analytics.dugganusa.com/pricing">Pricing</a> &middot; ' +
+  '<a style="color:#4f46e5" href="https://www.linkedin.com/company/dugganusa-llc" rel="noopener">LinkedIn</a> &middot; ' +
+  '<a style="color:#4f46e5" href="https://github.com/pduggusa" rel="noopener">GitHub</a>' +
   '</footer>';
 
 class TrustFooter {

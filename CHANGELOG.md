@@ -2,6 +2,11 @@
 
 All notable changes to DugganUSA Edge Shield are documented here.
 
+## 2.14.3 — 2026-10-16
+
+- **`/research` redirects to `/blog` on www.** The shared nav calls the blog "Research"; a visitor or crawler typing `/research` got a 404. It joins the trust redirects, so it only fires when the origin 404s (a real Wix page at `/research` would win). 302, like the others.
+- **The trust footer is light.** It was hardcoded dark (`#07090c`) under pages that went light-first on 2026-10-16. Now `#f3f4f8` with `#444c63` text (7.77:1) and `#4f46e5` links (5.72:1), both WCAG AA.
+
 ## 2.14.2 — 2026-10-16
 
 - **Canary hits carry Cloudflare's verdict.** `honeypot_meta.bot_score` is gone: `cf.botManagement.score` only exists with Enterprise Bot Management, so it was null on 4,149 of 4,149 canary hits in the week to 2026-10-16. In its place, `honeypot_meta.cf_verified_bot_category` records Cloudflare's verified-bot category at capture time (e.g. `AI Crawler`), or `null` when Cloudflare did not verify the client. It is a comparator only; nothing in the canary or block path reads it. Tested by `node test-honeypot-meta.mjs`.

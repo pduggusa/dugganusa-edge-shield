@@ -1160,12 +1160,73 @@ function harvestedObserveEnabled(env, hostname) {
   return APPLIANCE_OWN_ZONES.some(z => host === z || host.endsWith('.' + z));
 }
 
+// SET AND FORGET (2.16.0): the bundled list above is the FALLBACK. Every 6 hours, one pull per
+// data center (Cache API, key on an unrequestable .invalid host, like the IOC feed) replaces it
+// with the live list from /feed/observation/paths, so a path harvested today is watched today
+// without a redeploy. A pull is used only if it validates (>= 100 well-formed entries); anything
+// else keeps the current list, so an empty or broken response can never silently blind this.
+const HARVESTED_REFRESH_MS = 6 * 3600 * 1000;
+const HARVESTED_RETRY_MS = 30 * 60 * 1000;
+const HARVESTED_EDGE_CACHE_TTL = 6 * 3600; // seconds
+const HARVESTED_MIN_ENTRIES = 100;
+const HARVESTED_MAX_ENTRIES = 10000;
+let harvestedActive = { map: HARVESTED_PATHS, generatedAt: HARVESTED_PATHS_GENERATED_AT, source: 'bundled', lastPull: 0, lastFail: 0 };
+let harvestedInFlight = null;
+
+// Pure: a pulled body -> Map, or null if it must not replace the current list.
+function parseHarvestedList(body) {
+  let j; try { j = JSON.parse(body); } catch { return null; }
+  if (!j || !Array.isArray(j.paths) || j.paths.length > HARVESTED_MAX_ENTRIES) return null;
+  const m = new Map();
+  for (const e of j.paths) {
+    if (!Array.isArray(e) || e.length !== 2) continue;
+    const [p, c] = e;
+    if (typeof p !== 'string' || typeof c !== 'string') continue;
+    if (!p.startsWith('/') || p.length > 200 || p !== p.toLowerCase() || /[\s?#]/.test(p)) continue;
+    if (!/^CVE-\d{4}-\d{1,7}(,CVE-\d{4}-\d{1,7}){0,2}$/.test(c)) continue;
+    m.set(p, c);
+  }
+  if (m.size < HARVESTED_MIN_ENTRIES) return null;
+  return { map: m, generatedAt: typeof j.generated_at === 'string' ? j.generated_at.slice(0, 40) : '' };
+}
+
+function refreshHarvested(env, now = Date.now()) {
+  const a = harvestedActive;
+  const wait = a.lastFail > a.lastPull ? HARVESTED_RETRY_MS : HARVESTED_REFRESH_MS;
+  if (now - Math.max(a.lastPull, a.lastFail) < wait || harvestedInFlight || !env.DUGGANUSA_API_KEY) return null;
+  harvestedInFlight = (async () => {
+    try {
+      const key = new Request('https://edge-shield-feed-cache.invalid/harvested-paths');
+      let cache = null, body = null;
+      try { cache = caches.default; const hit = await cache.match(key); if (hit) body = await hit.text(); } catch { cache = null; }
+      if (body === null) {
+        const r = await fetch(`${DUGGANUSA_API}/feed/observation/paths`, {
+          headers: { Authorization: `Bearer ${env.DUGGANUSA_API_KEY}`, 'User-Agent': SHIELD_UA } });
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        body = await r.text();
+        if (cache && parseHarvestedList(body)) {
+          try { await cache.put(key, new Response(body, { headers: { 'Content-Type': 'application/json', 'Cache-Control': `max-age=${HARVESTED_EDGE_CACHE_TTL}` } })); } catch { /* uncached is still correct */ }
+        }
+      }
+      const parsed = parseHarvestedList(body);
+      if (!parsed) throw new Error('pulled list did not validate');
+      harvestedActive = { map: parsed.map, generatedAt: parsed.generatedAt, source: 'live', lastPull: Date.now(), lastFail: a.lastFail };
+    } catch (e) {
+      harvestedActive = { ...harvestedActive, lastFail: Date.now() };
+      console.log(JSON.stringify({ shield: 'harvested-refresh', error: String(e && e.message || e).slice(0, 80),
+        serving: harvestedActive.source, entries: harvestedActive.map.size }));
+    } finally { harvestedInFlight = null; }
+  })();
+  return harvestedInFlight;
+}
+
 function getHarvestedMatch(path) {
-  if (!HARVESTED_PATHS.size) return null;
+  const list = harvestedActive.map;
+  if (!list.size) return null;
   for (const p of [path, safeDecode(path)]) {
     let k = String(p).toLowerCase();
     if (k.length > 1 && k.endsWith('/')) k = k.slice(0, -1);
-    const cves = HARVESTED_PATHS.get(k);
+    const cves = list.get(k);
     if (cves) return { path: k, cves };
   }
   return null;
@@ -1538,6 +1599,8 @@ export default {
     // Before scanner/IOC enforcement on purpose: a probe that a later layer 418s or 403s still
     // ARRIVED, and arrival time is the whole measurement. See HARVESTED_PATHS above.
     if (!verifiedCrawler && harvestedObserveEnabled(env, hostname)) {
+      const pull = refreshHarvested(env);
+      if (pull) ctx.waitUntil(pull);
       const hv = getHarvestedMatch(reqUrl.pathname);
       if (hv) {
         const net = sourceNet(ip);
@@ -1547,7 +1610,7 @@ export default {
           const own = APPLIANCE_OWN_ZONES.some(z => hostname === z || hostname.endsWith('.' + z));
           ctx.waitUntil(postHarvestedObservation(env, {
             cves: hv.cves, path: hv.path, asn: cf.asn || null, country: cf.country || '',
-            method: request.method, list_generated_at: HARVESTED_PATHS_GENERATED_AT,
+            method: request.method, list_generated_at: harvestedActive.generatedAt,
             ...(own ? { host: hostname, src_net: net, as_org: String(asnOrg || '').slice(0, 80), colo: cf.colo || '',
               ua: String(ua || '').substring(0, 120) } : {}),
           }));

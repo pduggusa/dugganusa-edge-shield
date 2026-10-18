@@ -58,10 +58,62 @@ t('dedupe: one report per net+path per 10 minutes', () => {
   eq(W.harvestedFirstInWindow('n|/p', 1000 + 11 * 60000), true);
 });
 
+// ---- live list refresh (2.16.0, set and forget) ----
+const mkRefresh = (fetchImpl, cacheStore = new Map()) => new Function('fetch', 'caches', [
+  "const DUGGANUSA_API = 'https://api.test/api/v1'; const SHIELD_UA = 'test';",
+  "const APPLIANCE_OWN_ZONES = ['dugganusa.com'];",
+  slice('function safeDecode(', 'function getCanary('),
+  "const HARVESTED_PATHS_GENERATED_AT = 'bundled-1'; const HARVESTED_PATHS = new Map([['/bundled/one.php','CVE-2026-1']]);",
+  slice('function harvestedObserveEnabled(', 'async function postHarvestedObservation('),
+  'return { parseHarvestedList, refreshHarvested, getHarvestedMatch, active: () => harvestedActive };',
+].join('\n'))(fetchImpl, { default: { match: async (k) => cacheStore.get(k.url) ? new Response(cacheStore.get(k.url)) : undefined, put: async (k, r) => cacheStore.set(k.url, await r.text()) } });
+const liveBody = (n, gen = '2026-10-19T00:00:00Z') => JSON.stringify({ generated_at: gen, paths: Array.from({ length: n }, (_, i) => [`/live${i}/x.php`, `CVE-2026-${2000 + i}`]) });
+t('parse: a valid list of >= 100 entries becomes a Map', () => {
+  const R = mkRefresh(async () => { throw new Error('no'); });
+  const p = R.parseHarvestedList(liveBody(120)); eq(p.map.size, 120); eq(p.generatedAt, '2026-10-19T00:00:00Z');
+});
+t('parse: too few, malformed, oversized or hostile entries never replace the list', () => {
+  const R = mkRefresh(async () => { throw new Error('no'); });
+  eq(R.parseHarvestedList(liveBody(50)), null);
+  eq(R.parseHarvestedList('not json'), null);
+  eq(R.parseHarvestedList(JSON.stringify({ paths: 'x' })), null);
+  eq(R.parseHarvestedList(liveBody(10001)), null);
+  const bad = JSON.parse(liveBody(100)); bad.paths.push(['/Upper/X.php', 'CVE-2026-1'], ['/a b', 'CVE-2026-1'], ['/ok/y.php', 'rm -rf'], ['/q?x', 'CVE-2026-1'], [1, 2]);
+  eq(R.parseHarvestedList(JSON.stringify(bad)).map.size, 100);
+});
+await (async () => {
+  let calls = 0;
+  const R = mkRefresh(async (url) => { calls++; return new Response(liveBody(150), { status: 200 }); });
+  t('before any pull, the bundled list is served', () => eq(R.getHarvestedMatch('/bundled/one.php').cves, 'CVE-2026-1'));
+  await R.refreshHarvested({ DUGGANUSA_API_KEY: 'k' });
+  t('after a pull, the live list replaces the bundled one', () => {
+    eq(R.active().source, 'live'); eq(R.getHarvestedMatch('/live7/x.php').cves, 'CVE-2026-2007'); eq(R.getHarvestedMatch('/bundled/one.php'), null);
+  });
+  t('no second pull inside 6 hours', () => { eq(R.refreshHarvested({ DUGGANUSA_API_KEY: 'k' }), null); eq(calls, 1); });
+  const B = mkRefresh(async () => new Response('{}', { status: 503 }));
+  await B.refreshHarvested({ DUGGANUSA_API_KEY: 'k' });
+  t('a failed pull keeps the bundled list and retries later, not now', () => {
+    eq(B.active().source, 'bundled'); eq(B.getHarvestedMatch('/bundled/one.php').cves, 'CVE-2026-1');
+    eq(B.refreshHarvested({ DUGGANUSA_API_KEY: 'k' }), null);
+  });
+  const E = mkRefresh(async () => new Response(liveBody(3), { status: 200 }));
+  await E.refreshHarvested({ DUGGANUSA_API_KEY: 'k' });
+  t('an emptied list (200 with 3 entries) is refused: no silent blinding', () => eq(E.active().source, 'bundled'));
+  const N = mkRefresh(async () => { throw new Error('must not fetch'); });
+  t('no key, no pull', () => eq(N.refreshHarvested({}), null));
+  const store = new Map(); let fetched = 0;
+  const C1 = mkRefresh(async () => { fetched++; return new Response(liveBody(130), { status: 200 }); }, store);
+  await C1.refreshHarvested({ DUGGANUSA_API_KEY: 'k' });
+  const C2 = mkRefresh(async () => { fetched++; return new Response(liveBody(130), { status: 200 }); }, store);
+  await C2.refreshHarvested({ DUGGANUSA_API_KEY: 'k' });
+  t('a second isolate in the same data center reads the cache, not the origin', () => { eq(fetched, 1); eq(C2.active().source, 'live'); });
+})();
+
 // The hook must never change the response: no return, no Response, only waitUntil.
 const hook = slice('// LAYER 0.5: Harvested-path OBSERVATION', '// LAYER 1:');
 t('Layer 0.5 never returns or builds a response', () => {
   if (/\breturn\b/.test(hook) || /new Response/.test(hook)) throw new Error('hook returns or answers');
+  if (!/ctx\.waitUntil\(pull\)/.test(hook)) throw new Error('refresh not in waitUntil');
   if (!/ctx\.waitUntil\(postHarvestedObservation/.test(hook)) throw new Error('hook does not report via waitUntil');
 });
 t('Layer 0.5 runs before scanner and IOC enforcement', () => {

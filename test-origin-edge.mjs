@@ -54,7 +54,7 @@ const run = async (env, { host, path = '/api/v1/search/stats', headers = {} }) =
   await Promise.all(waits);
   // The worker's OWN calls to the DugganUSA API (feed pulls, honeypot / feed-hit reports) also go
   // to analytics.dugganusa.com, so they are told apart by path, not host.
-  const isApi = (u) => /\/api\/v1\/(stix-feed\/|feed\/hit|threat-intel\/honeypot)/.test(new URL(u).pathname);
+  const isApi = (u) => /\/api\/v1\/(stix-feed\/|feed\/hit|feed\/observation|threat-intel\/honeypot)/.test(new URL(u).pathname);
   return { res, out: sent.filter(s => new URL(s.url).hostname === host && !isApi(s.url)), api: sent.filter(s => isApi(s.url)) };
 };
 

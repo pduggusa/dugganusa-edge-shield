@@ -2,6 +2,10 @@
 
 All notable changes to DugganUSA Edge Shield are documented here.
 
+## 2.16.2 — 2026-10-18
+
+- **Two holes in 2.16.1's flood defense, closed** (security review). Corroboration counted distinct repos, so one GitHub account could create many repos for a fake CVE and outrank real ones under the cap; it now counts distinct owners. And a path later dropped as shared by more than 3 CVEs still spent its CVE's and owner's slots, so a burst of shared paths could exhaust a real CVE's budget; the filter now drops shared paths before allocating any slot. Same output on the real harvest (1,790 paths, 700 CVEs); four simulated attacks (one-owner flood, many-owner flood, one-owner repo inflation, backdated shared-path exhaustion) keep every real path.
+
 ## 2.16.1 — 2026-10-18
 
 - **The harvested-path list resists a flood of fake PoCs.** The harvest is built from public GitHub repos, which anyone can publish, and the cap used to keep the newest harvests first, so a burst of fresh fake repos could evict real paths (security review). Now a rule contributes at most 25 paths, a CVE at most 10, a GitHub owner at most 200; earliest-harvested rules claim slots first; and when the 4,000-path cap binds, CVEs corroborated by more repos outrank single-repo ones, older before newer. On the real harvest every one of 700 CVEs is still covered (1,790 paths). Simulated floods of 3,000 fake CVEs from one owner and from 3,000 owners kept every real path. The same filter runs server-side for the live list (parity-tested).

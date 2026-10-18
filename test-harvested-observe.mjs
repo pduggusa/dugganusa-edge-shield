@@ -176,6 +176,19 @@ t('flood from 3000 owners: every real path kept (older harvest wins ties under t
   if (!realRules.every(r => m.has(r.value))) throw new Error('real path evicted');
   eq(f.paths.length, 4000);
 });
+t('one owner with many repos cannot buy corroboration rank (owners counted, not repos)', () => {
+  const inflate = Array.from({ length: 3000 }, (_, i) => ({ id: `g${i}`, malware_family: `CVE-2026-${800000 + (i % 60)}`, tags: ['endpoint'],
+    harvested_at: '2026-12-31T00:00:00Z', references: [`https://github.com/evil/repo${i}`], value: `/yy${i}/bb.php` }));
+  const m = new Map(buildPaths(realRules.concat(floodRules(3000), inflate)).paths);
+  if (!realRules.every(r => m.has(r.value))) throw new Error('real path evicted');
+});
+t('paths dropped as shared do not spend a CVE\'s slots', () => {
+  const victim = 'CVE-2026-10001';
+  const attack = Array.from({ length: 50 }, (_, i) => ({ id: `h${i}`, malware_family: i % 2 ? victim : `CVE-2026-7777${i}`, tags: ['endpoint'],
+    harvested_at: '2000-01-01T00:00:00Z', references: [`https://github.com/x${i}/r`], value: Array.from({ length: 25 }, (_, j) => `/shared${j}/c.php`).join(' | ') }));
+  const m = new Map(buildPaths(realRules.concat(attack)).paths);
+  eq(m.get('/product1/vuln/endpoint.php'), victim);
+});
 t('one rule contributes at most 25 paths; one CVE at most 10', () => {
   eq(buildPaths([{ id: 'x', malware_family: 'CVE-2026-5', tags: ['endpoint'], value: Array.from({ length: 500 }, (_, j) => `/p${j}/q.php`).join(' | ') }]).paths.length, 10);
 });

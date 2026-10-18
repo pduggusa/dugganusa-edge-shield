@@ -111,20 +111,21 @@ await (async () => {
 
 // The hook must never change the response: no return, no Response, only waitUntil.
 const hook = slice('// LAYER 0.5: Harvested-path OBSERVATION', '// LAYER 1:');
-t('Layer 0.5 never returns or builds a response', () => {
+t('Layer 0.5 never returns, answers or posts: it only notes the match', () => {
   if (/\breturn\b/.test(hook) || /new Response/.test(hook)) throw new Error('hook returns or answers');
   if (!/ctx\.waitUntil\(pull\)/.test(hook)) throw new Error('refresh not in waitUntil');
-  if (!/ctx\.waitUntil\(postHarvestedObservation/.test(hook)) throw new Error('hook does not report via waitUntil');
+  if (/postHarvestedObservation/.test(hook)) throw new Error('hook posts before the response is known');
+  if (!/obs\.pending = \{/.test(hook)) throw new Error('hook does not note the match');
 });
 t('Layer 0.5 runs before scanner and IOC enforcement', () => {
   if (!(src.indexOf('// LAYER 0.5') < src.indexOf('// LAYER 1:') && src.indexOf('// LAYER 1:') < src.indexOf('// LAYER 2:'))) throw new Error('order');
 });
 t('observation posts carry no full IP field', () => {
-  const post = slice('ctx.waitUntil(postHarvestedObservation(env, {', '}));');
+  const post = slice('obs.pending = {', '};');
   if (/\bip\b\s*[:,]/.test(post.replace(/src_net/g, ''))) throw new Error('raw ip in the report');
 });
 t('customer zone report omits host, UA, network and AS org', () => {
-  const post = slice('ctx.waitUntil(postHarvestedObservation(env, {', '}));');
+  const post = slice('obs.pending = {', '};');
   const always = post.slice(0, post.indexOf('...(own'));
   for (const f of ['host:', 'src_net:', 'ua:', 'as_org:', 'colo:']) if (always.includes(f)) throw new Error(`${f} sent for customer zones`);
   if (!/\.\.\.\(own \? \{ host: hostname, src_net: net/.test(post)) throw new Error('own-zone fields not gated on own');
@@ -200,6 +201,46 @@ t('render + splice round-trips and keeps the markers', () => {
   const m = new Function(out.slice(out.indexOf(BEGIN), out.indexOf(END)) + ';return HARVESTED_PATHS')();
   eq(m.get('/one/two.php'), 'CVE-2026-4');
 });
+
+// ---- the INVARIANT, end to end through the shipped handler (2.17.0) ----
+console.log('invariant (full handler)');
+{
+  const posted = [];
+  let originStatus = 200;
+  globalThis.fetch = async (input, init) => {
+    const req = input instanceof Request ? input : new Request(input, init);
+    const u = new URL(req.url);
+    if (u.pathname.endsWith('/feed/observation')) { posted.push(JSON.parse(await req.text())); return new Response('{"success":true}'); }
+    if (u.pathname.endsWith('/feed/observation/paths')) return new Response('{}', { status: 503 });
+    if (u.pathname.includes('/stix-feed/')) return new Response('ip,confidence\n');
+    if (u.pathname.includes('/threat-intel/honeypot') || u.pathname.includes('/feed/hit')) return new Response('{}');
+    return new Response('origin', { status: originStatus, headers: { 'content-type': 'text/plain' } });
+  };
+  const store = new Map();
+  globalThis.caches = { default: { match: async (k) => store.get(k.url)?.clone(), put: async (k, v) => { store.set(k.url, v.clone()); } } };
+  const realLog = console.log; console.log = () => {};
+  const worker = (await import('data:text/javascript,' + encodeURIComponent(src))).default;
+  const env = { DUGGANUSA_API_KEY: 'k', HONEYPOTS_ENABLED: 'true' };
+  let n = 0;
+  const run = async (path, status) => {
+    originStatus = status; posted.length = 0; n++;
+    const waits = []; const ctx = { waitUntil: (p) => waits.push(p) };
+    const res = await worker.fetch(new Request(`https://www.dugganusa.com${path}`, {
+      headers: { 'user-agent': 'Mozilla/5.0 Chrome/125.0', 'cf-connecting-ip': `198.51.${n}.7` } }), env, ctx);
+    await Promise.all(waits);
+    return { res, posted: [...posted] };
+  };
+  const r200 = await run('/scp/login.php', 200);
+  const r404 = await run('/scp/login.php', 404);
+  const rNon = await run('/an/ordinary/page', 404);
+  const rDecoy = await run('/_layouts/15/notify.aspx', 200);
+  console.log = realLog;
+  t('a harvested path that returns REAL content records nothing (list poisoning is inert)', () => { eq(r200.res.status, 200); eq(r200.posted.length, 0); });
+  t('a harvested path that 404s at the origin records one arrival', () => { eq(r404.posted.length, 1); eq(r404.posted[0].path, '/scp/login.php'); });
+  t('a non-harvested 404 records nothing', () => eq(rNon.posted.length, 0));
+  t('a harvested path answered by an edge decoy records an arrival', () => { eq(rDecoy.posted.length, 1); eq(rDecoy.posted[0].cves, 'CVE-2026-32201'); });
+  t('the response is never changed by observation', () => { eq(r404.res.status, 404); });
+}
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

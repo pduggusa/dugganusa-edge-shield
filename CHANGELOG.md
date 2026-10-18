@@ -2,6 +2,10 @@
 
 All notable changes to DugganUSA Edge Shield are documented here.
 
+## 2.17.0 — 2026-10-18
+
+- **An invariant instead of more cases: only a request that got no real content is an arrival.** Three security reviews in a row found a new way to game the harvested-path list (flood eviction, repo-count inflation, slot exhaustion, then list poisoning: plant one of a site's REAL page paths in a public PoC, and the worker would report that page's real visitors). The observation is now reported after the response is known, and only if the origin answered 400 or above or the edge answered with a decoy. A planted real page returns real content, so nothing is recorded and no visitor data is kept, whatever the harvest contains. Probes of paths a site does not serve, which is every real exploit probe, still count, including ones a later layer blocks. The fetch handler is now `handleFetch()` behind a thin default-export wrapper; responses are unchanged. Five end-to-end tests run the shipped handler: real content records nothing, a 404 records once, a non-harvested 404 records nothing, a decoy records, the response is never altered.
+
 ## 2.16.2 — 2026-10-18
 
 - **Two holes in 2.16.1's flood defense, closed** (security review). Corroboration counted distinct repos, so one GitHub account could create many repos for a fake CVE and outrank real ones under the cap; it now counts distinct owners. And a path later dropped as shared by more than 3 CVEs still spent its CVE's and owner's slots, so a burst of shared paths could exhaust a real CVE's budget; the filter now drops shared paths before allocating any slot. Same output on the real harvest (1,790 paths, 700 CVEs); four simulated attacks (one-owner flood, many-owner flood, one-owner repo inflation, backdated shared-path exhaustion) keep every real path.

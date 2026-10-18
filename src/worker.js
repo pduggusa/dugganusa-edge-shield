@@ -1469,8 +1469,7 @@ function rateLimitedResponse(ip, authed, limit) {
 // MAIN HANDLER
 // ================================================================
 
-export default {
-  async fetch(request, env, ctx) {
+async function handleFetch(request, env, ctx, obs) {
     const cf = request.cf || {};
     const ua = request.headers.get('user-agent') || '';
     const ip = request.headers.get('cf-connecting-ip') || '';
@@ -1603,18 +1602,19 @@ export default {
       if (pull) ctx.waitUntil(pull);
       const hv = getHarvestedMatch(reqUrl.pathname);
       if (hv) {
+        // Noted only. The default-export wrapper reports it once the response is known, and only
+        // if the request got no real content (see the INVARIANT there).
         const net = sourceNet(ip);
-        if (harvestedFirstInWindow(`${net}|${hv.path}`)) {
-          // On a CUSTOMER zone (opted in) the report is minimal: the CVE, OUR list's path, ASN,
-          // country and method. Never their hostname, never the visitor's UA or network.
-          const own = APPLIANCE_OWN_ZONES.some(z => hostname === z || hostname.endsWith('.' + z));
-          ctx.waitUntil(postHarvestedObservation(env, {
-            cves: hv.cves, path: hv.path, asn: cf.asn || null, country: cf.country || '',
-            method: request.method, list_generated_at: harvestedActive.generatedAt,
-            ...(own ? { host: hostname, src_net: net, as_org: String(asnOrg || '').slice(0, 80), colo: cf.colo || '',
-              ua: String(ua || '').substring(0, 120) } : {}),
-          }));
-        }
+        // On a CUSTOMER zone (opted in) the report is minimal: the CVE, OUR list's path, ASN,
+        // country and method. Never their hostname, never the visitor's UA or network.
+        const own = APPLIANCE_OWN_ZONES.some(z => hostname === z || hostname.endsWith('.' + z));
+        obs.key = `${net}|${hv.path}`;
+        obs.pending = {
+          cves: hv.cves, path: hv.path, asn: cf.asn || null, country: cf.country || '',
+          method: request.method, list_generated_at: harvestedActive.generatedAt,
+          ...(own ? { host: hostname, src_net: net, as_org: String(asnOrg || '').slice(0, 80), colo: cf.colo || '',
+            ua: String(ua || '').substring(0, 120) } : {}),
+        };
       }
     }
 
@@ -1679,6 +1679,7 @@ export default {
       ? (getCanary(path) || (applianceCanariesEnabled(env, new URL(request.url).hostname) ? getApplianceCanary(path) : null))
       : null;
     if (canary) {
+      obs.edgeDecoy = true; // a decoy 200 is still "no real content" for harvested-path observation
       // Index the attacker's fingerprint into the STIX feed (non-blocking)
       ctx.waitUntil(indexHoneypotHit(env, request, cf, canary));
       // Return convincing fake response — waste their time
@@ -1767,7 +1768,23 @@ export default {
     const tagged = new Response(out.body, out);
     tagged.headers.set('X-DugganUSA-Observed', observed.join(','));
     return tagged;
-  }
+}
+
+export default {
+  // Harvested-path observations are reported AFTER the response is known (2.17.0). THE INVARIANT:
+  // only a request that got no real content is an arrival — the origin answered >= 400, or the
+  // edge answered it with a decoy (blocks, 418s, 429s and secret-probe 404s are >= 400 already).
+  // A planted path that is one of our real pages returns real content, so nothing is recorded and
+  // no visitor data is kept: list poisoning and ordinary traffic cannot become observations,
+  // whatever the harvest contains (security review of c554cd08, after three rounds of cases).
+  async fetch(request, env, ctx) {
+    const obs = { pending: null, key: '', edgeDecoy: false };
+    const res = await handleFetch(request, env, ctx, obs);
+    if (obs.pending && (res.status >= 400 || obs.edgeDecoy) && harvestedFirstInWindow(obs.key)) {
+      ctx.waitUntil(postHarvestedObservation(env, obs.pending));
+    }
+    return res;
+  },
 };
 
 

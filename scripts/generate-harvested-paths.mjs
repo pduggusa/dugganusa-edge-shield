@@ -25,7 +25,10 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 
 export const MAX_PATHS = 4000;
-export const MAX_CVES_PER_PATH = 3; // a path many PoCs share identifies nothing
+export const MAX_CVES_PER_PATH = 3;
+export const MAX_PATHS_PER_RULE = 25;  // one harvested rule (one repo) cannot list thousands of paths
+export const MAX_PATHS_PER_CVE = 10;   // nor can one CVE id crowd out the others
+export const MAX_PATHS_PER_OWNER = 200; // nor one GitHub account across many CVEs (200 keeps all 700 real CVEs, 2026-10-18) // a path many PoCs share identifies nothing
 
 // Words that do not identify a product on their own. A path made only of these is generic.
 const COMMON = new Set(('api v1 v2 v3 v4 rest admin administrator users user auth login logout signin signup ' +
@@ -75,13 +78,27 @@ export function isDistinctive(p) {
 
 export function buildPaths(rules) {
   const byPath = new Map(); // lowercase path -> { cves:Set, first }
-  let considered = 0, junk = 0, generic = 0, own = 0;
-  for (const d of rules) {
+  let considered = 0, junk = 0, generic = 0, own = 0, capped = 0;
+  // RESOURCE-CAP DEFENSE (security review of 1a835dd5): the harvest is built from public GitHub
+  // repos, which anyone can publish. Earliest-harvested rules claim slots first (our harvester sets
+  // harvested_at; a later flood cannot backdate past it); a rule contributes at most
+  // MAX_PATHS_PER_RULE paths, a CVE at most MAX_PATHS_PER_CVE, a GitHub owner at most
+  // MAX_PATHS_PER_OWNER; and when the overall cap binds, CVEs corroborated by more distinct repos
+  // outrank single-repo ones, older before newer.
+  const ordered = [...rules].sort((a, b) => String(a.harvested_at || a.timestamp || '').localeCompare(String(b.harvested_at || b.timestamp || '')) ||
+    String(a.id || '').localeCompare(String(b.id || '')) || String(a.value || '').localeCompare(String(b.value || '')));
+  const perCve = new Map(); const reposByCve = new Map(); const perOwner = new Map();
+  for (const d of ordered) {
     if (!(d.tags || []).includes('endpoint')) continue;
     const cve = String(d.malware_family || '').toUpperCase();
     if (!/^CVE-\d{4}-\d+$/.test(cve)) continue;
     const t = d.harvested_at || d.timestamp || '';
-    for (const raw of String(d.value || '').split(' | ')) {
+    const repo = String((Array.isArray(d.references) && d.references[0]) || d.id || '').toLowerCase();
+    if (!reposByCve.has(cve)) reposByCve.set(cve, new Set());
+    if (repo) reposByCve.get(cve).add(repo);
+    const gh = /github\.com\/([^/]+)/i.exec(repo);
+    const owner = gh ? gh[1] : repo;
+    for (const raw of String(d.value || '').split(' | ', MAX_PATHS_PER_RULE)) {
       let p = raw.trim().split('?')[0].split('#')[0];
       if (p.length > 1 && p.endsWith('/')) p = p.slice(0, -1);
       considered++;
@@ -89,6 +106,11 @@ export function buildPaths(rules) {
       const lower = p.toLowerCase();
       if (OWN_PREFIXES.some(pre => lower === pre.replace(/\/$/, '') || lower.startsWith(pre))) { own++; continue; }
       if (!isDistinctive(lower)) { generic++; continue; }
+      if (!byPath.has(lower)) {
+        if ((perCve.get(cve) || 0) >= MAX_PATHS_PER_CVE || (owner && (perOwner.get(owner) || 0) >= MAX_PATHS_PER_OWNER)) { capped++; continue; }
+        perCve.set(cve, (perCve.get(cve) || 0) + 1);
+        if (owner) perOwner.set(owner, (perOwner.get(owner) || 0) + 1);
+      }
       const e = byPath.get(lower) || { cves: new Set(), first: t };
       e.cves.add(cve);
       if (t && (!e.first || t < e.first)) e.first = t;
@@ -99,13 +121,16 @@ export function buildPaths(rules) {
   const rows = [];
   for (const [p, e] of byPath) {
     if (e.cves.size > MAX_CVES_PER_PATH) { shared++; continue; }
-    rows.push([p, [...e.cves].sort().join(','), e.first]);
+    const repos = Math.max(...[...e.cves].map((c) => (reposByCve.get(c) || new Set()).size));
+    rows.push([p, [...e.cves].sort().join(','), e.first, repos]);
   }
   // Newest harvests first: if the cap ever binds, the freshest PoCs (the left-of-boom ones) stay.
-  rows.sort((a, b) => String(b[2]).localeCompare(String(a[2])) || a[0].localeCompare(b[0]));
+  // Under the cap: more distinct repos first; on a tie the OLDER harvest stays (a fresh flood fills
+  // only spare room, it cannot evict established paths).
+  rows.sort((a, b) => (b[3] - a[3]) || String(a[2]).localeCompare(String(b[2])) || a[0].localeCompare(b[0]));
   const kept = rows.slice(0, MAX_PATHS);
   return { paths: kept.map(([p, c]) => [p, c]).sort((a, b) => a[0].localeCompare(b[0])),
-    stats: { considered, junk, own, generic, shared, distinct: rows.length, kept: kept.length, capped: rows.length - kept.length,
+    stats: { considered, junk, own, generic, shared, distinct: rows.length, kept: kept.length, capped: rows.length - kept.length, per_cve_or_rule_capped: capped,
       cves: new Set(kept.flatMap(r => r[1].split(','))).size } };
 }
 

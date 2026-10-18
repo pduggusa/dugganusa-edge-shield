@@ -161,6 +161,24 @@ t('a path shared by more than 3 CVEs is dropped as generic', () => {
 t('query strings and trailing slashes normalized, lowercased', () => {
   eq(buildPaths([rule('CVE-2026-3', '/Foo/Bar.PHP?x=1')]).paths, [['/foo/bar.php', 'CVE-2026-3']]);
 });
+const realRules = Array.from({ length: 300 }, (_, i) => ({ id: `real${i}`, malware_family: `CVE-2026-${10000 + i}`, tags: ['endpoint'],
+  harvested_at: '2026-10-01T00:00:00Z', references: [`https://github.com/researcher${i % 30}/poc${i}`], value: `/product${i}/vuln/endpoint.php` }));
+const floodRules = (owners) => Array.from({ length: 3000 }, (_, i) => ({ id: `fake${i}`, malware_family: `CVE-2026-${900000 + i}`, tags: ['endpoint'],
+  harvested_at: '2026-12-31T00:00:00Z', references: [`https://github.com/evil${i % owners}/r${i}`],
+  value: Array.from({ length: 100 }, (_, j) => `/zz${i}x${j}/aa.php`).join(' | ') }));
+t('flood from one GitHub owner: every real path kept, fakes capped at the owner cap', () => {
+  const f = buildPaths(realRules.concat(floodRules(1))); const m = new Map(f.paths);
+  if (!realRules.every(r => m.has(r.value))) throw new Error('real path evicted');
+  eq(f.paths.filter(r => r[0].startsWith('/zz')).length, 200);
+});
+t('flood from 3000 owners: every real path kept (older harvest wins ties under the cap)', () => {
+  const f = buildPaths(realRules.concat(floodRules(3000))); const m = new Map(f.paths);
+  if (!realRules.every(r => m.has(r.value))) throw new Error('real path evicted');
+  eq(f.paths.length, 4000);
+});
+t('one rule contributes at most 25 paths; one CVE at most 10', () => {
+  eq(buildPaths([{ id: 'x', malware_family: 'CVE-2026-5', tags: ['endpoint'], value: Array.from({ length: 500 }, (_, j) => `/p${j}/q.php`).join(' | ') }]).paths.length, 10);
+});
 t('render + splice round-trips and keeps the markers', () => {
   const built = buildPaths([rule('CVE-2026-4', '/one/two.php')]);
   const fake = `a\n${BEGIN}\nold\n${END}\nb`;

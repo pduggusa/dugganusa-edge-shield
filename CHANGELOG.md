@@ -2,6 +2,10 @@
 
 All notable changes to DugganUSA Edge Shield are documented here.
 
+## 2.16.1 — 2026-10-18
+
+- **The harvested-path list resists a flood of fake PoCs.** The harvest is built from public GitHub repos, which anyone can publish, and the cap used to keep the newest harvests first, so a burst of fresh fake repos could evict real paths (security review). Now a rule contributes at most 25 paths, a CVE at most 10, a GitHub owner at most 200; earliest-harvested rules claim slots first; and when the 4,000-path cap binds, CVEs corroborated by more repos outrank single-repo ones, older before newer. On the real harvest every one of 700 CVEs is still covered (1,790 paths). Simulated floods of 3,000 fake CVEs from one owner and from 3,000 owners kept every real path. The same filter runs server-side for the live list (parity-tested).
+
 ## 2.16.0 — 2026-10-18
 
 - **Set and forget: the harvested-path list refreshes itself.** The list bundled in 2.15.0 is now the fallback. Every 6 hours, one pull per data center (Cache API on an unrequestable `.invalid` key, like the IOC feed) replaces it with the live list from `GET /api/v1/feed/observation/paths`, so a path the harvester indexes today is watched at the edge without a redeploy. A pull is used only if it validates: valid JSON, at least 100 and at most 10,000 entries, each a lowercase `/path` up to 200 characters and 1-3 CVE ids. Anything else keeps the current list and retries in 30 minutes, so an empty or broken response can never silently blind the observation. Refreshes run in `waitUntil` and only where observation is enabled. Tested by `node test-harvested-observe.mjs` (32).

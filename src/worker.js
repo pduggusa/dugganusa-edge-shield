@@ -1542,10 +1542,14 @@ export default {
       if (hv) {
         const net = sourceNet(ip);
         if (harvestedFirstInWindow(`${net}|${hv.path}`)) {
+          // On a CUSTOMER zone (opted in) the report is minimal: the CVE, OUR list's path, ASN,
+          // country and method. Never their hostname, never the visitor's UA or network.
+          const own = APPLIANCE_OWN_ZONES.some(z => hostname === z || hostname.endsWith('.' + z));
           ctx.waitUntil(postHarvestedObservation(env, {
-            cves: hv.cves, path: hv.path, host: hostname, src_net: net,
-            asn: cf.asn || null, as_org: String(asnOrg || '').slice(0, 80), country: cf.country || '', colo: cf.colo || '',
-            method: request.method, ua: String(ua || '').substring(0, 120), list_generated_at: HARVESTED_PATHS_GENERATED_AT,
+            cves: hv.cves, path: hv.path, asn: cf.asn || null, country: cf.country || '',
+            method: request.method, list_generated_at: HARVESTED_PATHS_GENERATED_AT,
+            ...(own ? { host: hostname, src_net: net, as_org: String(asnOrg || '').slice(0, 80), colo: cf.colo || '',
+              ua: String(ua || '').substring(0, 120) } : {}),
           }));
         }
       }

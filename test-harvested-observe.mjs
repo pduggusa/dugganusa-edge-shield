@@ -71,6 +71,12 @@ t('observation posts carry no full IP field', () => {
   const post = slice('ctx.waitUntil(postHarvestedObservation(env, {', '}));');
   if (/\bip\b\s*[:,]/.test(post.replace(/src_net/g, ''))) throw new Error('raw ip in the report');
 });
+t('customer zone report omits host, UA, network and AS org', () => {
+  const post = slice('ctx.waitUntil(postHarvestedObservation(env, {', '}));');
+  const always = post.slice(0, post.indexOf('...(own'));
+  for (const f of ['host:', 'src_net:', 'ua:', 'as_org:', 'colo:']) if (always.includes(f)) throw new Error(`${f} sent for customer zones`);
+  if (!/\.\.\.\(own \? \{ host: hostname, src_net: net/.test(post)) throw new Error('own-zone fields not gated on own');
+});
 t('the shipped list parses and is non-empty', () => {
   const block = src.slice(src.indexOf(BEGIN), src.indexOf(END));
   const m = new Function(block + ';return HARVESTED_PATHS')();

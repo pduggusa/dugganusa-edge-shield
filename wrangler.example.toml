@@ -92,6 +92,12 @@ HONEYPOTS_ENABLED = "false"
 # DugganUSA's own zones, off for yours. [unset]
 # APPLIANCE_CANARIES = "true"
 
+# Harvested-path observation (2.15.0): requests on paths from public exploit PoCs are passed
+# through untouched and reported to DugganUSA (path, CVE, /24 source net, ASN, country) so
+# probe arrival can be timed against the CVE's KEV date. Never blocks, never a decoy.
+# Unset = DugganUSA zones only. "true" opts your zones in; "false" turns it off.
+# HARVESTED_OBSERVE = "true"
+
 # When a feed indicator matches, report it back to DugganUSA's feed-efficacy axis.
 # PRIVACY CONTRACT: sends ONLY the indicator we published (the attacker IP), the
 # action ("blocked" or "observed"), a count and the Cloudflare ray ID of the matched

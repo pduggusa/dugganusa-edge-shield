@@ -2,6 +2,10 @@
 
 All notable changes to DugganUSA Edge Shield are documented here.
 
+## 2.15.0 — 2026-10-18
+
+- **Harvested-path observation.** The exploit harvester indexes the endpoint paths of public PoCs, often before CISA lists the CVE (Atlassian CVE-2026-21589: harvested 10-06, KEV 10-15), and until now nothing at the edge watched them: every appliance canary was hand-written after a KEV listing. `scripts/generate-harvested-paths.mjs` turns the harvest into a list inlined in `worker.js` (1,894 paths, 700 CVEs on first generation; static assets, filesystem paths, globs, generic words and our own routes dropped). A request on one of those paths is **passed through untouched**; in the background the worker reports `{cves, path, coarse source net (/24 or /48), ASN, country}` to `/api/v1/feed/observation`. No decoy, no block, no IOC: a probe can be induced, so a hit records that a path arrived, never who sent it. One map lookup per request, no KV, at most one report per source net and path per isolate per 10 minutes, so it fits the free plan. Runs before scanner and IOC enforcement, so a probe a later layer blocks still counts. **Our zones only by default**; `HARVESTED_OBSERVE = "true"` opts a customer in, `"false"` turns it off. Tested by `node test-harvested-observe.mjs`.
+
 ## 2.14.3 — 2026-10-16
 
 - **`/research` redirects to `/blog` on www.** The shared nav calls the blog "Research"; a visitor or crawler typing `/research` got a 404. It joins the trust redirects, so it only fires when the origin 404s (a real Wix page at `/research` would win). 302, like the others.

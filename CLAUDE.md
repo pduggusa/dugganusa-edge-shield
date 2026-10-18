@@ -234,6 +234,7 @@ warning in Workers Logs. Full comments live in `wrangler.example.toml`.
 | `RL_AUTH` | `500` | requests/min per IP with a key, `0` disables |
 | `HONEYPOTS_ENABLED` | `true` | `true` / `false` |
 | `APPLIANCE_CANARIES` | unset | unset = DugganUSA zones only; `true` / `false` |
+| `HARVESTED_OBSERVE` | unset | unset = DugganUSA zones only; `true` / `false`. Pass-through observation of public-PoC exploit paths; reports path, CVE, /24 and ASN to DugganUSA, never blocks |
 | `FEED_HIT_REPORTING` | `true` | `true` / `false` |
 | `SCHEMA_INJECT_HOSTS` | DugganUSA's hosts | comma list; `""` = none |
 | `SENSOR_HOSTS` | none | comma list of hosts or `*.example.com` |
@@ -254,7 +255,8 @@ deception rather than blocking, so they keep their own switch.
   traffic", not "blocked", so failing closed costs a real crawler nothing.
 - **Tests extract the shipped code** rather than reimplementing it:
   `node test-config-observe.mjs`, `node test-appliance-canaries.mjs`,
-  `node test-crawler-verify.mjs` (the last one uses real DNS), `node test-origin-edge.mjs`.
+  `node test-crawler-verify.mjs` (the last one uses real DNS), `node test-origin-edge.mjs`,
+  `node test-harvested-observe.mjs`.
 
 ## Support
 

@@ -21,7 +21,6 @@ Your origin keeps its core; the Worker enforces the DugganUSA Feed's context at 
 [![SSL Labs](https://img.shields.io/badge/SSL%20Labs-A%2B-4ade80)](https://www.ssllabs.com/ssltest/analyze.html?d=analytics.dugganusa.com)
 [![Headers](https://img.shields.io/badge/Security%20Headers-7%2F7-4ade80)](https://securityheaders.com/?q=analytics.dugganusa.com)
 [![DNSSEC](https://img.shields.io/badge/DNSSEC-Enabled-4ade80)](https://dnssec-analyzer.verisignlabs.com/dugganusa.com)
-[![Cosign](https://img.shields.io/badge/Container%20Images-Cosign%20Signed-4ade80)](https://github.com/sigstore/cosign)
 [![SBOM](https://img.shields.io/badge/SBOM-CycloneDX-4ade80)](https://github.com/pduggusa/enterprise-extraction-platform/tree/main/compliance/evidence/sbom)
 
 **DugganUSA's threat feed at your edge, plus behavioral blocking. Deploy in 30 seconds.**

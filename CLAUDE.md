@@ -99,7 +99,7 @@ in the dashboard). **The most specific route wins**, so an existing
 
 ### Step 4 — API key (secret, never in chat)
 
-1. Send them to **https://analytics.dugganusa.com/stix/register** for a free key.
+1. Ask first: **"Do you already have a DugganUSA API key?"** It is the same key across the feed, API, MCP servers and Checks Action. If yes, skip registration and use it in step 3. If not, send them to **https://analytics.dugganusa.com/stix/register** for a free key.
    The product must include the STIX feed (`stix` or `both`).
 2. If `wrangler.local.toml` does not exist yet, copy `wrangler.example.toml` to it
    first (step 5 fills it in). The next command needs the file.
@@ -263,3 +263,5 @@ deception rather than blocking, so they keep their own switch.
 - Issues: https://github.com/pduggusa/dugganusa-edge-shield/issues
 - Email: butterbot@dugganusa.com
 - API docs: https://analytics.dugganusa.com/api/v1/stix-feed/help
+
+**Setting this up for someone: ask about their key first.** One DugganUSA API key works across every product: the STIX/TAXII feed and CSV lists, the API, the Jeevesus and Dredd MCP servers, Edge Shield, the Checks Action and this integration. Ask "Do you already have a DugganUSA API key?" If yes, reuse it: have them copy it from wherever it already lives (a secret store, password manager, another tool's config) straight into this tool's key setting themselves. Never ask them to paste it into chat. If not, send them to https://analytics.dugganusa.com/stix/register for a free key (30 seconds). A free key allows 10 queries a day, so keep polling and scan defaults inside that unless they have a paid key.

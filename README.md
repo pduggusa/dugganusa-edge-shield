@@ -13,7 +13,7 @@ Your origin keeps its core; the Worker enforces the DugganUSA Feed's context at 
 [![MIT License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Cloudflare Workers](https://img.shields.io/badge/Cloudflare-Workers-F38020?logo=cloudflare&logoColor=white)](https://workers.cloudflare.com/)
 [![IOCs](https://img.shields.io/badge/IOC%20counts-live-10b981)](https://analytics.dugganusa.com/api/v1/search/stats)
-[![Reach](https://img.shields.io/badge/Reach%20vs%20List--only-30x-818cf8)](https://analytics.dugganusa.com/stix/pricing)
+[![Reach](https://img.shields.io/badge/Reach%20vs%20List--only-30x-818cf8)](https://analytics.dugganusa.com/pricing)
 [![STIX 2.1](https://img.shields.io/badge/STIX-2.1-4f46e5)](https://analytics.dugganusa.com/api/v1/stix-feed)
 
 **Posture:**
@@ -218,7 +218,7 @@ The Worker is **free and open source forever.** The intelligence is tiered:
 | **Pro** | $99/mo or $948/yr |
 | **Enterprise** | $995/mo or $9,950/yr |
 
-Current limits and prices: [analytics.dugganusa.com/stix/pricing](https://analytics.dugganusa.com/stix/pricing).
+Current limits and prices: [analytics.dugganusa.com/pricing](https://analytics.dugganusa.com/pricing).
 
 <div align="center">
 
@@ -364,6 +364,6 @@ Same DugganUSA Feed, surfaced wherever you live. Open source, MIT licensed, rece
 | [dugganusa-action](https://github.com/pduggusa/dugganusa-action) | GitHub Action |
 | [dredd-mcp](https://github.com/pduggusa/dredd-mcp) | Dredd: pre-flight MCP security |
 
-Backed by the [DugganUSA Feed](https://analytics.dugganusa.com/stix). Numbers are live: [/api/v1/search/stats](https://analytics.dugganusa.com/api/v1/search/stats). Pricing: [analytics.dugganusa.com/stix/pricing](https://analytics.dugganusa.com/stix/pricing). Contact: help@dugganusa.com.
+Backed by the [DugganUSA Feed](https://analytics.dugganusa.com/stix). Numbers are live: [/api/v1/search/stats](https://analytics.dugganusa.com/api/v1/search/stats). Pricing: [analytics.dugganusa.com/pricing](https://analytics.dugganusa.com/pricing). Contact: help@dugganusa.com.
 
 _Threat intelligence you can check._

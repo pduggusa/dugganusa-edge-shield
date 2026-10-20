@@ -1737,9 +1737,16 @@ async function handleFetch(request, env, ctx, obs) {
     // static file, yet 192 of ~1,233 loads in a week were origin 504s (all browsers): the
     // analytics origin stalls 2-4% of every hour and took the signup page down with it.
     // Both pages set no cookie; storeArchive still refuses anything personalised.
+    // SECURITY (review of 500ba3a): the archive key is path + device class only, and the
+    // response check only sees Set-Cookie. So for the analytics pages, archive ONLY a fully
+    // anonymous, query-less GET: a request carrying a Cookie or Authorization header could get
+    // a personalised page stored for everyone (cache deception), and a query string the key
+    // ignores could plant reflected content (cache poisoning). Anything else goes to origin.
+    const anonymousPlain = !request.headers.has('cookie') && !request.headers.has('authorization') && _au.search === '';
     const isArchive = request.method === 'GET' && (
       (_au.hostname === 'www.dugganusa.com' && _au.pathname.startsWith('/post/'))
-      || (_au.hostname === 'analytics.dugganusa.com' && (_au.pathname === '/stix/register' || _au.pathname === '/pricing'))
+      || (_au.hostname === 'analytics.dugganusa.com' && anonymousPlain
+          && (_au.pathname === '/stix/register' || _au.pathname === '/pricing'))
     );
     const response = isArchive
       ? await serveArchive(request, newRequest, ctx)
@@ -1825,7 +1832,10 @@ const ARCHIVE_MAX_AGE_S = 7 * 24 * 60 * 60;     // emergency copy retained a wee
 
 function archiveKey(url, ua) {
   const variant = /Mobile|Android|iPhone|iPad/i.test(ua || '') ? 'm' : 'd';
-  return new Request(`${url.origin}${url.pathname}?__dusa_v=${variant}`, { method: 'GET' });
+  // `k=2` on analytics pages orphans anything stored during the ~7 minutes 2.18.0 ran
+  // without the anonymous/query-less guard (version f6c971e3), so no such copy is ever served.
+  const gen = url.hostname === 'analytics.dugganusa.com' ? '&k=2' : '';
+  return new Request(`${url.origin}${url.pathname}?__dusa_v=${variant}${gen}`, { method: 'GET' });
 }
 
 // Cookies the blog platform sets on every public post. Verified 2026-08-22 against a

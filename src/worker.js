@@ -1733,9 +1733,9 @@ async function handleFetch(request, env, ctx, obs) {
     // where the origin fails ~half of all cold reads, so they get cache-first with a
     // stale-if-error floor. Everything else goes straight through unchanged.
     const _au = new URL(request.url);
-    // 2.18.0 (2026-10-20): the two conversion pages join the archive. /stix/register is a
-    // static file, yet 192 of ~1,233 loads in a week were origin 504s (all browsers): the
-    // analytics origin stalls 2-4% of every hour and took the signup page down with it.
+    // 2.18.0 (2026-10-20): the two conversion pages join the archive as insurance against an
+    // origin stall. (The 504s that prompted it were Cloudflare Early Hints prefetches, not
+    // people: real visitors saw 3 failed register loads of ~1,200 in a week.)
     // Both pages set no cookie; storeArchive still refuses anything personalised.
     // SECURITY (review of 500ba3a): the archive key is path + device class only, and the
     // response check only sees Set-Cookie. So for the analytics pages, archive ONLY a fully

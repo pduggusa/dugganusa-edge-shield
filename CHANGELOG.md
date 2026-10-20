@@ -2,6 +2,12 @@
 
 All notable changes to DugganUSA Edge Shield are documented here.
 
+## 2.18.0 — 2026-10-20
+
+- **The signup and pricing pages survive an origin stall.** `analytics.dugganusa.com/stix/register` and `/pricing` now use the archive shield that already protects blog posts: cache-first for 10 minutes, stale-while-revalidate to an hour, and the last good copy served if the origin times out or returns 5xx. The register page is a static file, yet 192 of about 1,233 loads in one week were origin 504s, all from browsers. Same safety rules as before: only 200 HTML with no personalised cookie is ever stored. Feed, API and form-submit requests are untouched.
+- The archive now drops `cdn-cache-control` and `cloudflare-cdn-cache-control` from stored copies: our analytics origin sends `cdn-cache-control: no-store`, which the Cache API obeys, so nothing was being stored (every read reported `miss`; after the fix, `hit`).
+- Also on epstein.dugganusa.com since 2026-10-20: full route coverage (route change only, no code).
+
 ## 2.17.0 — 2026-10-18
 
 - **An invariant instead of more cases: only a request that got no real content is an arrival.** Three security reviews in a row found a new way to game the harvested-path list (flood eviction, repo-count inflation, slot exhaustion, then list poisoning: plant one of a site's REAL page paths in a public PoC, and the worker would report that page's real visitors). The observation is now reported after the response is known, and only if the origin answered 400 or above or the edge answered with a decoy. A planted real page returns real content, so nothing is recorded and no visitor data is kept, whatever the harvest contains. Probes of paths a site does not serve, which is every real exploit probe, still count, including ones a later layer blocks. The fetch handler is now `handleFetch()` behind a thin default-export wrapper; responses are unchanged. Five end-to-end tests run the shipped handler: real content records nothing, a 404 records once, a non-harvested 404 records nothing, a decoy records, the response is never altered.

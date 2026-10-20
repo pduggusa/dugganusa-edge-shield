@@ -1733,9 +1733,14 @@ async function handleFetch(request, env, ctx, obs) {
     // where the origin fails ~half of all cold reads, so they get cache-first with a
     // stale-if-error floor. Everything else goes straight through unchanged.
     const _au = new URL(request.url);
-    const isArchive = request.method === 'GET'
-      && _au.hostname === 'www.dugganusa.com'
-      && _au.pathname.startsWith('/post/');
+    // 2.18.0 (2026-10-20): the two conversion pages join the archive. /stix/register is a
+    // static file, yet 192 of ~1,233 loads in a week were origin 504s (all browsers): the
+    // analytics origin stalls 2-4% of every hour and took the signup page down with it.
+    // Both pages set no cookie; storeArchive still refuses anything personalised.
+    const isArchive = request.method === 'GET' && (
+      (_au.hostname === 'www.dugganusa.com' && _au.pathname.startsWith('/post/'))
+      || (_au.hostname === 'analytics.dugganusa.com' && (_au.pathname === '/stix/register' || _au.pathname === '/pricing'))
+    );
     const response = isArchive
       ? await serveArchive(request, newRequest, ctx)
       : await fetch(newRequest);
@@ -1858,6 +1863,11 @@ async function storeArchive(cache, key, response, ctx) {
   // returns 504 for roughly half of cold requests. Freshness is bounded by
   // ARCHIVE_FRESH_MS/ARCHIVE_SWR_MS above, not by this header.
   copy.headers.delete('set-cookie');
+  // 2.18.0: our own analytics origin also sends `cdn-cache-control: no-store`, which the
+  // Cache API obeys over Cache-Control, so the register page was never stored (every read
+  // reported `miss`). The same override applies; the cookie guard above still decides.
+  copy.headers.delete('cdn-cache-control');
+  copy.headers.delete('cloudflare-cdn-cache-control');
   copy.headers.set('Cache-Control', `public, max-age=${ARCHIVE_MAX_AGE_S}`);
   copy.headers.set('x-dusa-archive-at', String(Date.now()));
   ctx.waitUntil(cache.put(key, copy));

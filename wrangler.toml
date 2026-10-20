@@ -103,6 +103,12 @@ routes = [
   { pattern = "analytics.dugganusa.com/*", zone_name = "dugganusa.com" },
   # finops.dugganusa.com (2026-10-05) — Enterprise Metering product: full protection, same as analytics.
   { pattern = "finops.dugganusa.com/*", zone_name = "dugganusa.com" },
+  # epstein.dugganusa.com (2026-10-20, Patrick: "shield epstein"): public research site (nginx
+  # on the Meili VM), NOT a sensor. A config-file prober (71 WAF blocks, .env/.git/phpinfo)
+  # drew 25 origin 504s while the SPA answered 200 to every probe path. Full coverage so IOC
+  # blocking, the per-IP rate limit and the canaries run here too. Search is POST-on-submit
+  # (~4 requests per page), far under RL_ANON 100/min.
+  { pattern = "epstein.dugganusa.com/*", zone_name = "dugganusa.com" },
   { pattern = "aipmsec.com/*", zone_name = "aipmsec.com" },
   # DRONE: deliberately NO catch-all on security.dugganusa.com. The drone is a SENSOR -- it
   # must see raw background radiation (scanners, probes, IOC-listed IPs). A shield in front

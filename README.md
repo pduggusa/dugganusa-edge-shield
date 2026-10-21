@@ -14,14 +14,13 @@ Your origin keeps its core; the Worker enforces the DugganUSA Feed's context at 
 [![Cloudflare Workers](https://img.shields.io/badge/Cloudflare-Workers-F38020?logo=cloudflare&logoColor=white)](https://workers.cloudflare.com/)
 [![IOCs](https://img.shields.io/badge/IOC%20counts-live-10b981)](https://analytics.dugganusa.com/api/v1/search/stats)
 [![Reach](https://img.shields.io/badge/Reach%20vs%20List--only-30x-818cf8)](https://analytics.dugganusa.com/pricing)
-[![STIX 2.1](https://img.shields.io/badge/STIX-2.1-4f46e5)](https://analytics.dugganusa.com/api/v1/stix-feed)
+[![STIX 2.1](https://img.shields.io/badge/STIX-2.1-4f46e5)](https://analytics.dugganusa.com/api/v1/stix-feed/help)
 
 **Posture:**
 
 [![SSL Labs](https://img.shields.io/badge/SSL%20Labs-A%2B-4ade80)](https://www.ssllabs.com/ssltest/analyze.html?d=analytics.dugganusa.com)
 [![Headers](https://img.shields.io/badge/Security%20Headers-7%2F7-4ade80)](https://securityheaders.com/?q=analytics.dugganusa.com)
-[![DNSSEC](https://img.shields.io/badge/DNSSEC-Enabled-4ade80)](https://dnssec-analyzer.verisignlabs.com/dugganusa.com)
-[![SBOM](https://img.shields.io/badge/SBOM-CycloneDX-4ade80)](https://github.com/pduggusa/enterprise-extraction-platform/tree/main/compliance/evidence/sbom)
+[![DNSSEC](https://img.shields.io/badge/DNSSEC-pending%20registrar%20transfer-f59e0b)](https://dnssec-analyzer.verisignlabs.com/dugganusa.com)
 
 **DugganUSA's threat feed at your edge, plus behavioral blocking. Deploy in 30 seconds.**
 

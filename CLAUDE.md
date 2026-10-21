@@ -228,7 +228,7 @@ warning in Workers Logs. Full comments live in `wrangler.example.toml`.
 | `IOC_BLOCKING` | `true` | `true` / `false` (false also stops feed pulls) |
 | `IOC_MIN_CONFIDENCE` | `80` | 0-100 |
 | `IOC_FEED_DAYS` | `7` | 1-90 |
-| `IOC_REFRESH_MINUTES` | `60` | 5-1440 (the data-center cache floors origin pulls at 10 min) |
+| `IOC_REFRESH_MINUTES` | `60` | 5-1440 (the data-center cache floors origin pulls at 10 min). The example ships `360`: a free key (10/day) affords 2 pulls per refresh for one data center; set 60 with a paid key |
 | `SCANNER_418` | `true` | `true` / `false` |
 | `RL_ANON` | `100` | requests/min per IP, `0` disables |
 | `RL_AUTH` | `500` | requests/min per IP with a key, `0` disables |

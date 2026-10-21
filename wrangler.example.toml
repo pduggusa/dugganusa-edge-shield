@@ -68,9 +68,13 @@ IOC_MIN_CONFIDENCE = "80"
 # Feed lookback window in days, 1-90. Indicators older than this are not loaded. [7]
 IOC_FEED_DAYS = "7"
 
-# Minutes between full feed refreshes, 5-1440. Each refresh = 2 API calls per
-# isolate, so mind your key's daily quota. [60]
-IOC_REFRESH_MINUTES = "60"
+# Minutes between full feed refreshes, 5-1440. Each refresh = 2 API calls (ips +
+# domains) per Cloudflare data center, so mind your key's daily quota.
+#   Free key (10/day):   360 -> 8 calls/day for one data center. This example ships 360
+#                        so a free key never runs IOC blocking on an empty cache.
+#   Paid key (300+/day): 60  -> 48 calls/day per data center. Fresher; set it if you pay.
+# Unset means the Worker default of 60.
+IOC_REFRESH_MINUTES = "360"
 
 # Answer known scanners (Shodan, Censys, LeakIX, Nuclei...) with HTTP 418. SASE
 # proxies (Zscaler, Netskope, Prisma...) are never treated as scanners. [true]

@@ -138,6 +138,10 @@ RL_AUTH = "500"
 HONEYPOTS_ENABLED = "true"
 FEED_HIT_REPORTING = "true"
 SCHEMA_INJECT_HOSTS = "www.dugganusa.com,dugganusa.com,aipmsec.com"
+# 2.19.0 (2026-10-22): dugganusa.com is the owned surface; www belongs to Wix's Cloudflare account
+# at the edge. The apex serves posts and its sitemap from our renderer on analytics (Wix stays the
+# CMS), after the shield has run. See memory project-apex-owned-surface.
+PATH_ORIGINS = "dugganusa.com/post/=>https://analytics.dugganusa.com/render/post/,dugganusa.com/sitemap.xml=>https://analytics.dugganusa.com/render/sitemap.xml"
 # APPLIANCE_CANARIES unset: on for our own zones by default, which is what we want.
 #
 # SENSOR_HOSTS deliberately left empty. security.dugganusa.com (the drone) IS a

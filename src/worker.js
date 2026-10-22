@@ -194,6 +194,47 @@ function withOriginEdge(request, env, hostname) {
 }
 // END ORIGIN EDGE SECRET
 
+// ============================================================
+// PATH ORIGINS (2.19.0) — send chosen paths to a different origin. Default: none.
+// ============================================================
+// PATH_ORIGINS = "dugganusa.com/post/=>https://analytics.dugganusa.com/render/post/"
+// (comma-separated "host/prefix=>https://target/prefix" pairs). The shield runs FIRST on the
+// original request (scanners, IOC feed, honeypots, rate limits); only then is the origin
+// fetch re-aimed: target + the rest of the path + the original query string.
+// Safety: a target host must be listed in ORIGIN_EDGE_HOSTS (our own origins). Anything else
+// is ignored with a one-time config warning, so a typo can never turn the shield into an open
+// proxy. Built for a hosted site builder that owns the www hostname at the edge: the apex,
+// which you do own, can serve those pages from your own renderer while the builder stays the
+// content backend.
+let pathOriginsWarned = false;
+function parsePathOrigins(env) {
+  const raw = env && typeof env.PATH_ORIGINS === 'string' ? env.PATH_ORIGINS.trim() : '';
+  if (!raw) return [];
+  const allowed = originEdgeHosts(env);
+  const out = [];
+  for (const pair of raw.split(',')) {
+    const m = pair.trim().match(/^([a-z0-9.-]+)(\/[^\s=]*)=>(https:\/\/[^\s]+)$/i);
+    let target = null;
+    try { target = m ? new URL(m[3]) : null; } catch (_) { target = null; }
+    if (!m || !target || !allowed.includes(target.hostname.toLowerCase())) {
+      if (!pathOriginsWarned) { pathOriginsWarned = true; console.log(JSON.stringify({ config: 'PATH_ORIGINS entry ignored (format host/prefix=>https://origin/prefix, origin must be in ORIGIN_EDGE_HOSTS)', entry: pair.trim().slice(0, 120) })); }
+      continue;
+    }
+    out.push({ host: m[1].toLowerCase(), prefix: m[2], target: m[3] });
+  }
+  return out;
+}
+// The re-aimed URL for this request, or null when no mapping applies.
+function pathOriginFor(env, url) {
+  for (const po of parsePathOrigins(env)) {
+    if (url.hostname.toLowerCase() === po.host && url.pathname.startsWith(po.prefix) && url.pathname.length > po.prefix.length) {
+      return new URL(po.target + url.pathname.slice(po.prefix.length) + url.search);
+    }
+  }
+  return null;
+}
+// END PATH ORIGINS
+
 // ================================================================
 // KNOWN SCANNER SIGNATURES
 // ================================================================
@@ -1723,11 +1764,17 @@ async function handleFetch(request, env, ctx, obs) {
     newHeaders.set('X-DugganUSA-Shield', 'active');
     newHeaders.set('X-DugganUSA-IOCs', iocCache.count.toString());
 
+    // PATH ORIGINS (2.19.0): re-aim this origin fetch when a mapping applies (default none).
+    const remapped = (request.method === 'GET' || request.method === 'HEAD') ? pathOriginFor(env, new URL(request.url)) : null;
+
     // Origin edge secret (2.14.0): our own origins only; a client copy is always stripped.
-    applyOriginEdge(newHeaders, env, hostname);
+    // A remapped request goes to OUR origin, so the secret is decided by the target host.
+    applyOriginEdge(newHeaders, env, remapped ? remapped.hostname : hostname);
 
     // Pass to origin with enriched headers
-    const newRequest = new Request(request, { headers: newHeaders });
+    const newRequest = remapped
+      ? new Request(remapped.toString(), { method: request.method, headers: newHeaders, redirect: 'manual' })
+      : new Request(request, { headers: newHeaders });
 
     // LAYER 4.5: ARCHIVE SHIELD — see serveArchive(). Blog posts are the one surface
     // where the origin fails ~half of all cold reads, so they get cache-first with a
@@ -1745,6 +1792,9 @@ async function handleFetch(request, env, ctx, obs) {
     const anonymousPlain = !request.headers.has('cookie') && !request.headers.has('authorization') && _au.search === '';
     const isArchive = request.method === 'GET' && (
       (_au.hostname === 'www.dugganusa.com' && _au.pathname.startsWith('/post/'))
+      // A remapped page (PATH_ORIGINS) gets the same stale-if-error floor, keyed by the
+      // ORIGINAL url, only for an anonymous query-less GET (same cache-deception rule as below).
+      || (remapped && anonymousPlain)
       || (_au.hostname === 'analytics.dugganusa.com' && anonymousPlain
           && (_au.pathname === '/stix/register' || _au.pathname === '/pricing'))
     );

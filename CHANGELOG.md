@@ -2,6 +2,11 @@
 
 All notable changes to DugganUSA Edge Shield are documented here.
 
+## 2.19.0 — 2026-10-22
+
+- **Path origins: serve chosen paths from a different origin, after the shield has run.** New optional var `PATH_ORIGINS` (`host/prefix=>https://origin/prefix`, comma-separated; default none). Built for a hosted site builder that owns your `www` hostname at the edge (its Cloudflare-for-SaaS custom hostname wins, so your Worker never runs there): on the apex, which you do own, chosen pages can come from your own renderer while the builder stays the content backend. Scanner, IOC, honeypot and rate-limit checks all run on the original request first; only the origin fetch is re-aimed (target + rest of the path + query). **A target host must be in `ORIGIN_EDGE_HOSTS`**, so a typo cannot turn the shield into an open proxy; an invalid entry is ignored with a one-time `config:` warning. Remapped anonymous query-less GETs get the archive's stale-if-error floor, keyed by the original URL. GET and HEAD only.
+- DugganUSA's own deployment uses it for `dugganusa.com/post/` → `analytics.dugganusa.com/render/post/`.
+
 ## 2.18.0 — 2026-10-20
 
 - **The signup and pricing pages survive an origin stall.** `analytics.dugganusa.com/stix/register` and `/pricing` now use the archive shield that already protects blog posts: cache-first for 10 minutes, stale-while-revalidate to an hour, and the last good copy served if the origin times out or returns 5xx. Correction (same day): the 504s that prompted this were almost all Cloudflare's own Early Hints prefetches (user-agent `nginx-ssl early hints`), not people; real visitors saw 3 failed loads of about 1,200 in a week. The archive stays as cheap insurance. Same safety rules as before: only 200 HTML with no personalised cookie is ever stored. Feed, API and form-submit requests are untouched.

@@ -227,9 +227,13 @@ function parsePathOrigins(env) {
 // The re-aimed URL for this request, or null when no mapping applies.
 function pathOriginFor(env, url) {
   for (const po of parsePathOrigins(env)) {
-    if (url.hostname.toLowerCase() === po.host && url.pathname.startsWith(po.prefix) && url.pathname.length > po.prefix.length) {
-      return new URL(po.target + url.pathname.slice(po.prefix.length) + url.search);
-    }
+    if (url.hostname.toLowerCase() !== po.host) continue;
+    // A prefix ending in "/" maps the paths under it (not the bare prefix); any other prefix is
+    // an exact path (e.g. "dugganusa.com/sitemap.xml").
+    const hit = po.prefix.endsWith('/')
+      ? url.pathname.startsWith(po.prefix) && url.pathname.length > po.prefix.length
+      : url.pathname === po.prefix;
+    if (hit) return new URL(po.target + url.pathname.slice(po.prefix.length) + url.search);
   }
   return null;
 }
@@ -1770,6 +1774,11 @@ async function handleFetch(request, env, ctx, obs) {
     // Origin edge secret (2.14.0): our own origins only; a client copy is always stripped.
     // A remapped request goes to OUR origin, so the secret is decided by the target host.
     applyOriginEdge(newHeaders, env, remapped ? remapped.hostname : hostname);
+    // The renderer needs to know which public host it is answering for (it sets noindex on its own
+    // hostname). Only the shield may say so: a client copy is always stripped, and the header is
+    // set only on a remapped request, next to the origin edge secret the origin also checks.
+    newHeaders.delete('x-dugganusa-apex-host');
+    if (remapped) newHeaders.set('x-dugganusa-apex-host', hostname);
 
     // Pass to origin with enriched headers
     const newRequest = remapped
@@ -1798,9 +1807,15 @@ async function handleFetch(request, env, ctx, obs) {
       || (_au.hostname === 'analytics.dugganusa.com' && anonymousPlain
           && (_au.pathname === '/stix/register' || _au.pathname === '/pricing'))
     );
-    const response = isArchive
+    let response = isArchive
       ? await serveArchive(request, newRequest, ctx)
       : await fetch(newRequest);
+    // A remapped page is served at THIS host, which is the canonical one: never let a noindex the
+    // origin attached for its own hostname (or a copy cached under that hostname) leak through.
+    if (remapped && response.headers.has('x-robots-tag')) {
+      response = new Response(response.body, response);
+      response.headers.delete('x-robots-tag');
+    }
 
     // ============================================================
     // LAYER 5: LD-JSON injection for HTML responses

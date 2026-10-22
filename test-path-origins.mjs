@@ -26,10 +26,10 @@ const SECRET = 'edge-test-secret-not-real-0123456789abcdef';
 const sent = [];
 globalThis.fetch = async (input, init) => {
   const req = input instanceof Request ? input : new Request(input, init);
-  sent.push({ url: req.url, method: req.method, edge: req.headers.get('x-dugganusa-edge') });
+  sent.push({ url: req.url, method: req.method, edge: req.headers.get('x-dugganusa-edge'), apexHost: req.headers.get('x-dugganusa-apex-host') });
   if (req.url.includes('/stix-feed/ips.csv')) return new Response('ip,confidence\n');
   if (req.url.includes('/stix-feed/domains.csv')) return new Response('domain,confidence\n');
-  return new Response('origin ok', { status: 200, headers: { 'content-type': 'text/plain' } }); // text/plain: HTML would hit HTMLRewriter (Workers-only)
+  return new Response('origin ok', { status: 200, headers: { 'content-type': 'text/plain', 'x-robots-tag': 'noindex' } }); // text/plain: HTML would hit HTMLRewriter (Workers-only)
 };
 const store = new Map();
 globalThis.caches = { default: {
@@ -40,10 +40,10 @@ const logs = [];
 console.log = (...a) => { logs.push(a.join(' ')); };
 const worker = (await import('data:text/javascript,' + encodeURIComponent(src))).default;
 const isApi = (u) => /\/api\/v1\/(stix-feed\/|feed\/hit|feed\/observation|threat-intel\/honeypot)/.test(new URL(u).pathname);
-const run = async (env, { host, path, method = 'GET', ua = 'Mozilla/5.0 Chrome/125.0' }) => {
+const run = async (env, { host, path, method = 'GET', ua = 'Mozilla/5.0 Chrome/125.0', headers = {} }) => {
   sent.length = 0; store.clear();
   const waits = []; const ctx = { waitUntil: (p) => waits.push(p) };
-  const res = await worker.fetch(new Request(`https://${host}${path}`, { method, headers: { 'user-agent': ua, 'cf-connecting-ip': '192.0.2.10' } }), env, ctx);
+  const res = await worker.fetch(new Request(`https://${host}${path}`, { method, headers: { 'user-agent': ua, 'cf-connecting-ip': '192.0.2.10', ...headers } }), env, ctx);
   await Promise.all(waits);
   return { res, out: sent.filter(s => !isApi(s.url)) };
 };
@@ -76,6 +76,19 @@ check('target outside ORIGIN_EDGE_HOSTS ignored (no open proxy)', r.out.map(s =>
 check('ignored entry logs a config warning', logs.some(l => l.includes('PATH_ORIGINS entry ignored')), true);
 r = await run({ ...base, PATH_ORIGINS: 'dugganusa.com/post/=>http://analytics.dugganusa.com/render/post/' }, { host: 'dugganusa.com', path: '/post/hello' });
 check('plain http target ignored', r.out.map(s => s.url), ['https://dugganusa.com/post/hello']);
+
+// 2.19.0 follow-up: the renderer learns the public host only from the shield.
+const MAP2 = MAP + ',dugganusa.com/sitemap.xml=>https://analytics.dugganusa.com/render/sitemap.xml';
+r = await run({ ...base, PATH_ORIGINS: MAP2 }, { host: 'dugganusa.com', path: '/post/hello', headers: { 'x-dugganusa-apex-host': 'evil.example' } });
+check('remapped: apex host header set by the shield (client copy replaced)', r.out.map(s => s.apexHost), ['dugganusa.com']);
+check('remapped: origin noindex never reaches the apex', r.res.headers.get('x-robots-tag'), null);
+r = await run({ ...base, PATH_ORIGINS: MAP2 }, { host: 'analytics.dugganusa.com', path: '/render/post/hello', headers: { 'x-dugganusa-apex-host': 'dugganusa.com' } });
+check('direct hit on the renderer: forged apex host stripped', r.out.map(s => s.apexHost), [null]);
+check('direct hit on the renderer: its noindex is kept', r.res.headers.get('x-robots-tag'), 'noindex');
+r = await run({ ...base, PATH_ORIGINS: MAP2 }, { host: 'dugganusa.com', path: '/sitemap.xml' });
+check('exact-path mapping: /sitemap.xml re-aimed', r.out.map(s => s.url), ['https://analytics.dugganusa.com/render/sitemap.xml']);
+r = await run({ ...base, PATH_ORIGINS: MAP2 }, { host: 'dugganusa.com', path: '/sitemap.xml.bak' });
+check('exact-path mapping: a longer path is not re-aimed', r.out.map(s => s.url), ['https://dugganusa.com/sitemap.xml.bak']);
 
 realLog(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

@@ -598,7 +598,10 @@ function detectScanner(ua, asnOrg) {
   // NEVER flag SASE/SSE proxy users as scanners — they're enterprise customers
   if (SASE_PROXY_ORGS.some(p => orgLower.includes(p))) return false;
 
-  return SCANNER_UA.some(p => uaLower.includes(p)) ||
+  // 'httpx' is ProjectDiscovery's scanner; 'python-httpx/x' is the ordinary Python HTTP library
+  // (the official MCP SDK's default client). Matching the bare token 418'd every Python agent.
+  const uaForScan = uaLower.replace(/python-httpx\/[\d.]+/g, '');
+  return SCANNER_UA.some(p => uaForScan.includes(p)) ||
          SCANNER_ORGS.some(p => orgLower.includes(p));
 }
 

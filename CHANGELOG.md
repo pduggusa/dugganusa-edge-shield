@@ -2,6 +2,10 @@
 
 All notable changes to DugganUSA Edge Shield are documented here.
 
+## 2.19.1 — 2026-10-23
+
+- **Scanner detection no longer 418s Python agents.** The `httpx` scanner token (ProjectDiscovery's tool) also matched `python-httpx/x`, the ordinary Python HTTP library and the official MCP SDK's default client, so every Python-built agent calling an MCP endpoint behind the shield got a teapot. The library version string is now ignored for scanner matching; the scanner token still matches.
+
 ## 2.19.0 — 2026-10-22
 
 - **Path origins: serve chosen paths from a different origin, after the shield has run.** New optional var `PATH_ORIGINS` (`host/prefix=>https://origin/prefix`, comma-separated; default none). Built for a hosted site builder that owns your `www` hostname at the edge (its Cloudflare-for-SaaS custom hostname wins, so your Worker never runs there): on the apex, which you do own, chosen pages can come from your own renderer while the builder stays the content backend. Scanner, IOC, honeypot and rate-limit checks all run on the original request first; only the origin fetch is re-aimed (target + rest of the path + query). **A target host must be in `ORIGIN_EDGE_HOSTS`**, so a typo cannot turn the shield into an open proxy; an invalid entry is ignored with a one-time `config:` warning. Remapped anonymous query-less GETs get the archive's stale-if-error floor, keyed by the original URL. GET and HEAD only.

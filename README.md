@@ -13,7 +13,6 @@ Your origin keeps its core; the Worker enforces the DugganUSA Feed's context at 
 [![MIT License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Cloudflare Workers](https://img.shields.io/badge/Cloudflare-Workers-F38020?logo=cloudflare&logoColor=white)](https://workers.cloudflare.com/)
 [![IOCs](https://img.shields.io/badge/IOC%20counts-live-10b981)](https://analytics.dugganusa.com/api/v1/search/stats)
-[![Reach](https://img.shields.io/badge/Reach%20vs%20List--only-30x-818cf8)](https://analytics.dugganusa.com/pricing)
 [![STIX 2.1](https://img.shields.io/badge/STIX-2.1-4f46e5)](https://analytics.dugganusa.com/api/v1/stix-feed/help)
 
 **Posture:**
@@ -24,7 +23,7 @@ Your origin keeps its core; the Worker enforces the DugganUSA Feed's context at 
 
 **DugganUSA's threat feed at your edge, plus behavioral blocking. Deploy in 30 seconds.**
 
-Behavioral blocking at the edge, not just a list. Over 16 measured days the shield stopped 1,638 distinct attacking hosts where a blocklist working alone would have stopped 55 — and 81.3% of the hosts that actually attacked were on no blocklist anywhere.
+Behavioral blocking at the edge, alongside the list. Over 16 measured days the shield stopped 1,638 distinct attacking hosts, where the blocklist working alone would have stopped 55.
 
 [Get Your Free API Key](https://analytics.dugganusa.com/stix/register) &nbsp;&bull;&nbsp; [DugganUSA Feed](https://analytics.dugganusa.com/stix) &nbsp;&bull;&nbsp; [Blog](https://www.dugganusa.com) &nbsp;&bull;&nbsp; [AIPM](https://aipmsec.com)
 
@@ -58,8 +57,8 @@ Claude follows the playbook in [`CLAUDE.md`](CLAUDE.md), one question at a time 
 
 Don't take our word for the feed — **verify it yourself.** The DugganUSA platform serves **four live, no-auth, durable validation endpoints** (durable across our deploys; each response carries a `source` field of `live`, `durable`, or `baseline`):
 
-- **Novelty** — [`/api/v1/feed-uniqueness`](https://analytics.dugganusa.com/api/v1/feed-uniqueness): ~75%+ of our independently-sourced IOCs are **not** in ThreatFox. Most of what we publish, ThreatFox doesn't have.
-- **Timeliness** — [`/api/v1/kev-lead`](https://analytics.dugganusa.com/api/v1/kev-lead): a live ledger of how far ahead of CISA KEV we flagged each exploited CVE — positive leads, same-day, and no-receipt all shown honestly, with receipts.
+- **Novelty** — [`/api/v1/feed-uniqueness`](https://analytics.dugganusa.com/api/v1/feed-uniqueness): how much of our independently sourced data is not already in ThreatFox, so you can see what this feed adds beside the feeds you already run.
+- **Timeliness** — [`/api/v1/kev-lead`](https://analytics.dugganusa.com/api/v1/kev-lead): a live ledger of when each exploited CVE entered our corpus next to its CISA KEV listing date, with receipts, including the ones we had no record of.
 - **Accuracy** — [`/api/v1/spamhaus-validation`](https://analytics.dugganusa.com/api/v1/spamhaus-validation): Spamhaus independently corroborates our first-hand contributions.
 - **Liveness** — [`/api/v1/feed-efficacy`](https://analytics.dugganusa.com/api/v1/feed-efficacy): opt-in consumer reports of when our indicators actually fire on real traffic — proof the feed is operationally live, not just large. **This Worker is a reporter for that axis.**
 
@@ -142,7 +141,7 @@ Build geo dashboards, detect anomalies, log city-level analytics — all from he
 }
 ```
 
-**HTTP 418 I'm a Teapot.** Because they deserve it.
+**HTTP 418 I'm a Teapot.**
 
 ---
 
@@ -155,11 +154,10 @@ Edge Shield enforces the DugganUSA Feed (STIX 2.1):
 | Metric | Value |
 |:------:|:-----:|
 | **IOC records indexed** | live: [/api/v1/search/stats](https://analytics.dugganusa.com/api/v1/search/stats) (records are point observations, not distinct indicators) |
-| **Reach vs list-only defence** | 30x (1,638 hosts vs 55) |
 
 </div>
 
-We don't just aggregate — we hunt. 18 documented supply chain attacks (Pattern 38). NrodeCodeRAT discovered behaviorally, before any blocklist carried it. IRGC target analysis on 18 US tech companies. FBI wiretap breach analysis published same-day.
+Alongside the external feeds, we hunt: 18 documented supply chain attacks (Pattern 38). NrodeCodeRAT found through behavior. IRGC target analysis on 18 US tech companies. FBI wiretap breach analysis published same-day.
 
 ---
 
@@ -167,11 +165,11 @@ We don't just aggregate — we hunt. 18 documented supply chain attacks (Pattern
 
 <div align="center">
 
-**Is your brand invisible to ChatGPT?** Most are.
+**Is your brand invisible to ChatGPT?**
 
 </div>
 
-We built [**AIPM (AI Presence Management)**](https://aipmsec.com) — the tool that audits how AI models perceive your brand. Five models. Seven signals. Free.
+We built [**AIPM (AI Presence Management)**](https://aipmsec.com), a tool that audits how AI models perceive your brand. Five models. Seven signals. Free.
 
 We used it on ourselves. **0% → 23% ChatGPT visibility in 3 days.** Here's what we did:
 
@@ -187,7 +185,7 @@ We used it on ourselves. **0% → 23% ChatGPT visibility in 3 days.** Here's wha
 
 1. **robots.txt** — invited AI crawlers explicitly (GPTBot, ClaudeBot, PerplexityBot)
 2. **LD-JSON** — added Organization, Product, FAQ schema across all properties
-3. **llms.txt** — deployed an AI-readable site summary (most companies don't have one)
+3. **llms.txt** — deployed an AI-readable site summary
 4. **NLWeb** — built a Cloudflare Worker that serves `/.well-known/nlweb` for AI content retrieval
 5. **Managed questions** — told the AI models what questions to answer about us
 6. **Content velocity** — 15 blog posts in 4 days naming specific companies and CVEs

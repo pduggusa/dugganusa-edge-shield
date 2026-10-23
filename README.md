@@ -2,6 +2,8 @@
 
 # DugganUSA Edge Shield
 
+**Docs:** https://docs.dugganusa.com/firewall/edge-shield/
+
 **You do you. I do me. We share contexts.**
 
 Your origin keeps its core; the Worker enforces the DugganUSA Feed's context at your edge, before traffic reaches you.

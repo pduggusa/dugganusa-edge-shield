@@ -806,7 +806,10 @@ const FAKE_RESPONSES = {
     // here: that would aim traffic at the real origin.
     'app-config': {
       env: 'production', debug: true, log_level: 'debug',
-      env_file: '/.env',
+      // NOT /.env — verified 403 with no decoy. The secret-file probe handler (2.13.0)
+      // deliberately refuses those rather than serving fabricated credentials, and pointing
+      // at it would both break the chain and undercut that decision. /cpanel decoys properly.
+      hosting_panel: '/cpanel',
       payment_mode: 'live', daily_settlement_limit: 250000, currency: 'USD',
       session: { handler: 'files', serialize_handler: 'php', upload_progress: true },
       admin_panel: '/adminer.php',

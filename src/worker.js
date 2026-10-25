@@ -778,17 +778,30 @@ const FAKE_RESPONSES = {
       { name: 'laravel/framework', version: 'v9.19.0', type: 'library' },
       { name: 'nativephp/mobile', version: '4.5.0', type: 'library' },
       { name: 'nativephp/mobile-file', version: '1.0.1', type: 'library' },
-      { name: 'stripe/stripe-php', version: 'v7.128.0', type: 'library' },
       { name: 'monolog/monolog', version: '1.27.1', type: 'library' },
+      // MONEY. Four payment rails bolted on over the years, none removed, plus a wallet
+      // integration. A shop that processes real volume and has never consolidated anything.
+      { name: 'stripe/stripe-php', version: 'v7.128.0', type: 'library' },
+      { name: 'paypal/rest-api-sdk-php', version: '1.14.0', type: 'library' },
+      { name: 'braintree/braintree_php', version: '6.9.0', type: 'library' },
+      { name: 'authorizenet/authorizenet', version: '2.0.2', type: 'library' },
+      { name: 'web3p/web3.php', version: '0.1.4', type: 'library' },
+      // NO SENSE. Hand-rolled money handling, pinned to a moving branch.
       { name: 'craftshop/legacy-cart', version: 'dev-master', type: 'library' },
       { name: 'craftshop/payments-helper', version: 'dev-main', type: 'library' },
-      // Dev tooling in a production manifest: the classic small-shop tell.
+      { name: 'craftshop/admin-backdoor-removed', version: 'dev-main', type: 'library' },
+      // Dev tooling shipped to production: the classic tell. Whoops renders a stack trace
+      // with environment variables in it to anyone who can trigger an exception.
       { name: 'phpunit/phpunit', version: '9.5.10', type: 'library' },
       { name: 'symfony/var-dumper', version: 'v5.4.0', type: 'library' },
       { name: 'filp/whoops', version: '2.14.5', type: 'library' },
     ],
     'dev-package-names': [],
-    'app-config': { env: 'production', debug: true, log_level: 'debug' },
+    'app-config': {
+      env: 'production', debug: true, log_level: 'debug',
+      payment_mode: 'live', daily_settlement_limit: 250000, currency: 'USD',
+      session: { handler: 'files', serialize_handler: 'php', upload_progress: true },
+    },
   }, null, 2),
 
   // The endpoint RedEye reported for arbitrary object instantiation (GHSA-83jv-8h7x-287p).

@@ -766,15 +766,29 @@ const FAKE_RESPONSES = {
   // fingerprint, in the same spirit as the fabricated keys above. Every value here is
   // INVENTED. It is a tarpit, not intel: nothing in it should ever be read back as a fact
   // about our stack, and the fake vendor name is the tell.
+  // THE PERSONA IS THE POINT: a small shop in over its head, not a hardened enterprise.
+  // An attacker who reads a tidy, patched, locked-down manifest moves on and we learn
+  // nothing. So this one advertises a lack of sophistication on purpose — pre-fix NativePHP,
+  // an old Laravel, dev dependencies shipped to production, a debug flag left on, and a
+  // hand-rolled "payments" package with no namespace discipline. Every tell is the kind a
+  // real under-resourced shop leaves behind, which is also exactly who we built the feed for.
+  // All values INVENTED; it is a tarpit, not intel, and nothing here describes our stack.
   php: () => JSON.stringify({
     packages: [
-      { name: 'laravel/framework', version: 'v10.48.2', type: 'library' },
+      { name: 'laravel/framework', version: 'v9.19.0', type: 'library' },
       { name: 'nativephp/mobile', version: '4.5.0', type: 'library' },
       { name: 'nativephp/mobile-file', version: '1.0.1', type: 'library' },
-      { name: 'dugganusa-internal/billing-bridge', version: 'v2.1.7', type: 'library' },
-      { name: 'monolog/monolog', version: '2.9.1', type: 'library' },
+      { name: 'stripe/stripe-php', version: 'v7.128.0', type: 'library' },
+      { name: 'monolog/monolog', version: '1.27.1', type: 'library' },
+      { name: 'craftshop/legacy-cart', version: 'dev-master', type: 'library' },
+      { name: 'craftshop/payments-helper', version: 'dev-main', type: 'library' },
+      // Dev tooling in a production manifest: the classic small-shop tell.
+      { name: 'phpunit/phpunit', version: '9.5.10', type: 'library' },
+      { name: 'symfony/var-dumper', version: 'v5.4.0', type: 'library' },
+      { name: 'filp/whoops', version: '2.14.5', type: 'library' },
     ],
-    'dev-package-names': ['phpunit/phpunit'],
+    'dev-package-names': [],
+    'app-config': { env: 'production', debug: true, log_level: 'debug' },
   }, null, 2),
 
   // The endpoint RedEye reported for arbitrary object instantiation (GHSA-83jv-8h7x-287p).
@@ -993,9 +1007,31 @@ const SONICWALL_EXPLOIT_MARKERS = ['/_rewrite', ':5984', '%3a5984', '127.0.0.1',
 // marker. This function only ever sees a path, so a body-only attempt will not appear here.
 // The markers below catch it only when it shows up in a path or query string. RedEye drew the
 // same boundary about their own rules: "None of this sees the memory corruption write itself."
+//
+// ALSO NOT COVERED, measured in production right after the 2.20.0 deploy: Cloudflare answers
+// HTTP 400 to any path containing traversal — both `/../` and the `%2e%2e` encoding — BEFORE
+// the worker runs. Verified generic, not canary-specific: /foo/../../etc/passwd 400s too,
+// while /_assets/app.js returns the canary. So the '/../' and '%2e%2e' entries in
+// PHP_EXPLOIT_MARKERS below are effectively dead on CF-fronted zones, and the /_assets
+// traversal in GHSA-76px-r497-93p9 will show up here as a plain /_assets/ probe with no
+// exploit marker and no record of the payload. They are kept for non-CF deployments of this
+// worker (the customer appliance) and in case that edge behavior changes. The markers that do
+// fire here are upload_progress, |o:, unserialize and phpinfo in a path or query.
 const PHP_CANARY_PREFIXES = ['/_native/', '/_assets/', '/vendor/composer/', '/_profiler/'];
 const PHP_CANARY_EXACT = new Set(['/app_dev.php', '/vendor/composer/installed.json', '/_native/api/events']);
-const PHP_EXPLOIT_MARKERS = ['%2e%2e', '/../', 'upload_progress', '|o:', 'unserialize', 'phpinfo'];
+// MEASURED against production 2026-10-25, immediately after the 2.20.0 deploy, because the
+// first version of this list guessed. Cloudflare answers 400 to plain traversal before the
+// worker ever runs, so '/../', '%2e%2e', '..%2f' and '.%2e/' are DEAD here — kept only for
+// non-CF deployments of this worker (the customer appliance). What actually arrives, verified
+// 200 with the canary firing, is the EVASIVE set: '....//' (collapses to ../ after one pass),
+// '%252e%252e' (double-encoded, so CF sees a literal string and we decode it), and '..%5c'
+// (backslash). That is a better signal than what CF took away: plain ../ is a scanner reading
+// a path list, whereas double-encoding is someone deliberately working around a WAF.
+const PHP_EXPLOIT_MARKERS = [
+  '....//', '....\\', '%252e%252e', '..%5c', '..%255c',   // reach us (measured)
+  '%2e%2e', '/../', '..%2f',                               // CF 400s these; for non-CF edges
+  'upload_progress', '|o:', 'unserialize', 'phpinfo',      // payload markers in path or query
+];
 
 function getApplianceCanary(path) {
   // ENCODED-PATH MARKER: a hit whose RAW path differs from its decoded form is the

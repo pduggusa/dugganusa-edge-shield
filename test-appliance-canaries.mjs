@@ -184,6 +184,13 @@ check('NativePHP product tag', getApplianceCanary('/_native/api/events').product
 check('Composer recon product tag', getApplianceCanary('/vendor/composer/installed.json').product, 'php-composer');
 check('traversal on /_assets carries the exploit marker', getApplianceCanary('/_assets/../../etc/passwd').exploit_path, true);
 check('encoded traversal on /_assets too', getApplianceCanary('/_assets/%2e%2e/%2e%2e/etc/passwd').exploit_path, true);
+// The three shapes MEASURED reaching the worker through Cloudflare on 2026-10-25. Plain ../
+// and %2e%2e are 400'd at the edge and never arrive, so these are the ones that have to work
+// — and they are the higher-signal ones, because using them is deliberate WAF evasion.
+check('WAF-evading ....// reaches us and is flagged', getApplianceCanary('/_assets/....//etc/passwd').exploit_path, true);
+check('double-encoded %252e%252e is flagged', getApplianceCanary('/_assets/%252e%252e/etc/passwd').exploit_path, true);
+check('backslash ..%5c is flagged', getApplianceCanary('/_assets/..%5c..%5cetc/passwd').exploit_path, true);
+check('an ordinary /_assets fetch is NOT an exploit', getApplianceCanary('/_assets/app.js').exploit_path, undefined);
 check('plain Composer manifest probe carries no exploit marker', getApplianceCanary('/vendor/composer/installed.json').exploit_path, undefined);
 // THE ONE THAT MATTERS: our own blog slugs contain "php2shell" and "phpinfo"-ish words, and
 // 'phpinfo' is an exploit marker. Same trap the SonicWall pack documents for cve-2026-15984.

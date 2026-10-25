@@ -115,6 +115,23 @@ routes = [
   # of it 418s/403s exactly the traffic it exists to observe. Only the canary paths above.
   # (A catch-all was added and rolled back 2026-10-05 for this reason.)
   { pattern = "www.aipmsec.com/*", zone_name = "aipmsec.com" },
+
+  # PHP / NativePHP canaries (2.20.0, 2026-10-25). The worker only runs where a route
+  # sends it, so the 2.20.0 canary code is DEAD without these lines — the same
+  # ship-the-route-with-the-worker trap that has bitten us on three feeds.
+  # epstein.dugganusa.com and aipmsec.com already have catch-alls, so they are covered;
+  # analytics has explicit paths only, and the drone deliberately has no catch-all.
+  # Non-canary requests on these routes fall through to the origin unchanged, and all four
+  # path shapes were confirmed 404 on both zones before routing (nothing of ours serves them).
+  { pattern = "analytics.dugganusa.com/_native/*", zone_name = "dugganusa.com" },
+  { pattern = "analytics.dugganusa.com/_assets/*", zone_name = "dugganusa.com" },
+  { pattern = "analytics.dugganusa.com/vendor/composer/*", zone_name = "dugganusa.com" },
+  { pattern = "analytics.dugganusa.com/_profiler/*", zone_name = "dugganusa.com" },
+  { pattern = "analytics.dugganusa.com/app_dev.php*", zone_name = "dugganusa.com" },
+  { pattern = "security.dugganusa.com/_native/*", zone_name = "dugganusa.com" },
+  { pattern = "security.dugganusa.com/_assets/*", zone_name = "dugganusa.com" },
+  { pattern = "security.dugganusa.com/vendor/composer/*", zone_name = "dugganusa.com" },
+  { pattern = "security.dugganusa.com/_profiler/*", zone_name = "dugganusa.com" },
 ]
 
 [observability]

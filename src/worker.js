@@ -797,10 +797,21 @@ const FAKE_RESPONSES = {
       { name: 'filp/whoops', version: '2.14.5', type: 'library' },
     ],
     'dev-package-names': [],
+    // EVERY PATH BELOW IS ANOTHER CANARY ON THIS WORKER. The manifest is not just bait, it
+    // is a map into instrumented ground: .env, backup.sql, adminer.php and /_native/api/events
+    // are all already routed and already decoyed. A scanner that reads this and stops has told
+    // us it walks path lists. One that follows the pointers has told us it reads what it
+    // finds and acts on it — a different and much more interesting adversary — and we get a
+    // timed sequence of hops instead of a single hit. Do not list a path that is NOT a canary
+    // here: that would aim traffic at the real origin.
     'app-config': {
       env: 'production', debug: true, log_level: 'debug',
+      env_file: '/.env',
       payment_mode: 'live', daily_settlement_limit: 250000, currency: 'USD',
       session: { handler: 'files', serialize_handler: 'php', upload_progress: true },
+      admin_panel: '/adminer.php',
+      mobile_bridge: '/_native/api/events',
+      backup: { path: '/backup.sql', schedule: 'nightly', encrypted: false },
     },
   }, null, 2),
 

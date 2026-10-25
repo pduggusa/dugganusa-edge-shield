@@ -174,6 +174,29 @@ check('Ivanti still wins its own prefix', kind(pick({}, 'www.dugganusa.com', '/d
 const sw = sonicwallResponse('/workplace/');
 check('WorkPlace decoy 200 + title', sw.status === 200 && (await sw.text()).includes('<title>WorkPlace - Log in</title>'), true);
 check('/__api__/ decoy answers 401 JSON', sonicwallResponse('/__api__/login').status, 401);
+// PHP / NativePHP (2026-10-25) — PHP2Shell + the NativePHP endpoints RedEye reported.
+for (const p of ['/_native/api/events', '/_native/', '/_assets/../etc/passwd', '/_assets/x',
+                 '/vendor/composer/installed.json', '/vendor/composer/', '/_profiler/phpinfo',
+                 '/app_dev.php', '/symfony/_profiler/phpinfo'.replace('/symfony', '')]) {
+  check(`PHP trap: ${p}`, kind(pick({}, 'analytics.dugganusa.com', p)), 'php_scan');
+}
+check('NativePHP product tag', getApplianceCanary('/_native/api/events').product, 'nativephp-mobile');
+check('Composer recon product tag', getApplianceCanary('/vendor/composer/installed.json').product, 'php-composer');
+check('traversal on /_assets carries the exploit marker', getApplianceCanary('/_assets/../../etc/passwd').exploit_path, true);
+check('encoded traversal on /_assets too', getApplianceCanary('/_assets/%2e%2e/%2e%2e/etc/passwd').exploit_path, true);
+check('plain Composer manifest probe carries no exploit marker', getApplianceCanary('/vendor/composer/installed.json').exploit_path, undefined);
+// THE ONE THAT MATTERS: our own blog slugs contain "php2shell" and "phpinfo"-ish words, and
+// 'phpinfo' is an exploit marker. Same trap the SonicWall pack documents for cve-2026-15984.
+// A canary over a path we actually serve breaks the site, so these must all stay untrapped.
+for (const p of ['/post/php2shell-the-fix-is-out-patch-php-today', '/post/php2shell-now-carries-a-mirai-botnet',
+                 '/assets/app.js', '/vendor/', '/vendor/autoload.php', '/api/v1/search/stats',
+                 '/_api/blog', '/native/api/events', '/profiler/phpinfo', '/']) {
+  check(`not a PHP trap: ${p}`, kind(pick({}, 'www.dugganusa.com', p)) === 'php_scan', false);
+}
+check('customer PHP NOT trapped by default', kind(pick({}, 'app.customer.example', '/_native/api/events')), null);
+check('customer opt-in traps PHP', kind(pick({ APPLIANCE_CANARIES: 'true' }, 'app.customer.example', '/_native/api/events')), 'php_scan');
+check('Palo keeps /php/ — PHP pack must not steal it', kind(pick({}, 'www.dugganusa.com', '/php/login.php')), 'paloalto_scan');
+
 // The indexer must persist exploit_path (dropped before 2.12.0) and never the credential itself.
 check('indexer persists exploit_path', /canary\.exploit_path \? \{ exploit_path: true \}/.test(src), true);
 check('indexer stores default_creds as a boolean only', /default_creds: true/.test(src) && !/default_creds: request/.test(src), true);

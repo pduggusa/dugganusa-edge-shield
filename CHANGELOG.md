@@ -2,6 +2,14 @@
 
 All notable changes to DugganUSA Edge Shield are documented here.
 
+## 2.20.0 — 2026-10-25
+
+- **PHP and NativePHP canaries, so the next PHP2Shell zero is evidence instead of blindness.** `ttp-check` for CVE-2026-109618 reported 32,954 edge blocks, 26,217 canary docs and 1,690 origin captures with zero PHP2Shell-shaped hits — while printing its own caveat that "no canary for a product = cannot appear here". We had no PHP decoy, so that zero could not have been anything else. New pack traps `/_native/` and `/_assets/` (the NativePHP async-task bridge and static-asset traversal RedEye Security reported as GHSA-83jv-8h7x-287p and GHSA-76px-r497-93p9), plus `/vendor/composer/` and `/_profiler/` — Composer-manifest and Symfony-profiler recon that our edge was *already* seeing un-trapped (`/vendor/composer/installed.json` 6 blocks, `/symfony/_profiler/phpinfo`, `/app_dev.php/_profiler/phpinfo`).
+- Decoys answer in character: a fabricated Composer `installed.json` showing pre-fix NativePHP and old Laravel, and an accepted-looking async-task envelope for `/_native/api/events`. Every value is invented — a tarpit, not intel. A scanner that follows the 200 with a serialized payload has told us it carries a real exploit rather than a path list.
+- `exploit_path` is set on traversal (`/../`, `%2e%2e`) and on `upload_progress`, `|O:`, `unserialize` or `phpinfo` appearing in the path or query, so a probe is separable from an attempt.
+- **Not covered, deliberately:** the `session.upload_progress` primitive travels as a multipart POST **body** field, which the canary layer never sees. A body-only attempt will not appear. RedEye drew the same boundary around their own rules: "None of this sees the memory corruption write itself."
+- Collision-checked before shipping — `/_assets/x.js`, `/_native/api/events` and `/vendor/composer/installed.json` all 404 on both `www` and `analytics`, and Palo Alto keeps `/php/`. Our own blog slugs contain "php2shell" and `phpinfo` is an exploit marker, so there are explicit tests that `/post/php2shell-…` stays untrapped — the same way the SonicWall pack guards against Wix slugs carrying CVE numbers. 281 assertions pass across the four suites.
+
 ## 2.19.1 — 2026-10-23
 
 - **Scanner detection no longer 418s Python agents.** The `httpx` scanner token (ProjectDiscovery's tool) also matched `python-httpx/x`, the ordinary Python HTTP library and the official MCP SDK's default client, so every Python-built agent calling an MCP endpoint behind the shield got a teapot. The library version string is now ignored for scanner matching; the scanner token still matches.

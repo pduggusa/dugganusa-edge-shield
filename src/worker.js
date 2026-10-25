@@ -785,7 +785,17 @@ const FAKE_RESPONSES = {
       { name: 'paypal/rest-api-sdk-php', version: '1.14.0', type: 'library' },
       { name: 'braintree/braintree_php', version: '6.9.0', type: 'library' },
       { name: 'authorizenet/authorizenet', version: '2.0.2', type: 'library' },
+      // NEOCLOUD / WEB3 BOLT-ON. Rich-adjacent and reckless at the same time, and wallet
+      // access is near the top of most attackers' objective lists, so this is the strongest
+      // lure in the file. NOTE FOR ANYONE EXTENDING IT: no wallet ADDRESS appears anywhere
+      // here, deliberately. A fabricated-but-well-formed address can receive real funds from
+      // a confused third party, and that is a harm we would be causing, not observing.
       { name: 'web3p/web3.php', version: '0.1.4', type: 'library' },
+      { name: 'kornrunner/ethereum-offline-raw-tx', version: '0.3.0', type: 'library' },
+      { name: 'simplito/elliptic-php', version: '1.0.6', type: 'library' },
+      { name: 'bitwasp/bitcoin-php', version: 'v1.0.3', type: 'library' },
+      { name: 'cloudflare/ipfs-http-client', version: 'dev-main', type: 'library' },
+      { name: 'craftshop/nft-drop-minter', version: 'dev-master', type: 'library' },
       // NO SENSE. Hand-rolled money handling, pinned to a moving branch.
       { name: 'craftshop/legacy-cart', version: 'dev-master', type: 'library' },
       { name: 'craftshop/payments-helper', version: 'dev-main', type: 'library' },
@@ -811,6 +821,15 @@ const FAKE_RESPONSES = {
       // at it would both break the chain and undercut that decision. /cpanel decoys properly.
       hosting_panel: '/cpanel',
       payment_mode: 'live', daily_settlement_limit: 250000, currency: 'USD',
+      // The web3 side of the shop: a hot wallet left unlocked, a paid RPC key in config, an
+      // IPFS pinning service, and a treasury that settles to an exchange. No address, by
+      // design (see the package list above). All invented.
+      web3: {
+        chain_id: 1, rpc_provider: 'neocloud-rpc', rpc_key_in_env: true,
+        hot_wallet: { unlocked: true, keystore: 'storage/keystore/hot.json', passphrase_in_env: true },
+        treasury_settles_to: 'exchange-api', ipfs_pinning: 'enabled', ipfs_gateway: 'self-hosted',
+        nft_drop: { live: true, mint_price_eth: 0.08, royalties_wallet_in_env: true },
+      },
       session: { handler: 'files', serialize_handler: 'php', upload_progress: true },
       admin_panel: '/adminer.php',
       mobile_bridge: '/_native/api/events',

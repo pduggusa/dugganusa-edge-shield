@@ -797,9 +797,22 @@ const FAKE_RESPONSES = {
       { name: 'cloudflare/ipfs-http-client', version: 'dev-main', type: 'library' },
       { name: 'craftshop/nft-drop-minter', version: 'dev-master', type: 'library' },
       // NO SENSE. Hand-rolled money handling, pinned to a moving branch.
+      // THE PERSONA, AND WHY IT IS THIS ONE. Not an innocent shop — an operator who is
+      // street-smart about the life and illiterate about servers. That combination is the
+      // strongest lure we can build, for a reason worth writing down: a predator prefers a
+      // mark who cannot go to the authorities. A grey-market shop with real money and a
+      // second set of books will absorb a loss quietly, so it attracts the operators who
+      // pick their victims deliberately rather than the ones spraying a path list.
+      //
+      // Everything here is invented, and nothing names a real person, company or
+      // jurisdiction — the names are generic on purpose, because a fabricated surname on a
+      // "cash-reconcile" package is a real person's problem the first time it is indexed.
       { name: 'craftshop/legacy-cart', version: 'dev-master', type: 'library' },
       { name: 'craftshop/payments-helper', version: 'dev-main', type: 'library' },
       { name: 'craftshop/admin-backdoor-removed', version: 'dev-main', type: 'library' },
+      { name: 'craftshop/cash-reconcile', version: 'dev-master', type: 'library' },
+      { name: 'craftshop/shipping-calc-FINAL-v2', version: 'dev-master', type: 'library' },
+      { name: 'craftshop/wp-import-temp', version: 'dev-master', type: 'library' },
       // Dev tooling shipped to production: the classic tell. Whoops renders a stack trace
       // with environment variables in it to anyone who can trigger an exception.
       { name: 'phpunit/phpunit', version: '9.5.10', type: 'library' },
@@ -831,6 +844,12 @@ const FAKE_RESPONSES = {
         nft_drop: { live: true, mint_price_eth: 0.08, royalties_wallet_in_env: true },
       },
       session: { handler: 'files', serialize_handler: 'php', upload_progress: true },
+      // The quiet tells that this operator would rather not involve anyone official.
+      ops: {
+        books: ['main', 'ops'], payouts: 'p2p-crypto', kyc: 'deferred',
+        customs_declared_value_pct: 35, chargeback_strategy: 'appeal-all',
+        settlement: 'offshore-psp', entity_type: 'IBC', last_audit: 'never',
+      },
       admin_panel: '/adminer.php',
       mobile_bridge: '/_native/api/events',
       backup: { path: '/backup.sql', schedule: 'nightly', encrypted: false },

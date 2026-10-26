@@ -1254,10 +1254,37 @@ async function bodyTell(request, sampleOn) {
   if (method === 'GET' || method === 'HEAD') return null;
   try {
     const ctype = (request.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
-    const buf = await request.clone().arrayBuffer();
-    const bytes = buf.byteLength;
-    if (!bytes) return { body_bytes: 0, body_type: ctype || 'none' };
-    const text = new TextDecoder('utf-8', { fatal: false }).decode(buf.slice(0, BODY_LIMIT));
+    // STREAM, do not buffer. The first version called `arrayBuffer()` and then sliced to
+    // BODY_LIMIT, which capped the DECODE and not the READ — a 500 MB POST to a canary path
+    // would have been pulled into worker memory in full. Canary paths are precisely where an
+    // attacker goes, so that turned the tarpit into a resource-exhaustion lever pointed at us.
+    // Same class as the unbounded index fan-out fixed earlier today: bound the accumulator,
+    // not the thing you do with it afterwards. Caught by automated review before deploy.
+    const body = request.clone().body;
+    if (!body) return { body_bytes: 0, body_type: ctype || 'none' };
+    const reader = body.getReader();
+    const chunks = [];
+    let read = 0, truncated = false;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value && value.length) {
+        const take = Math.min(value.length, BODY_LIMIT - read);
+        if (take > 0) { chunks.push(value.subarray(0, take)); read += take; }
+        // Release the rest WITHOUT awaiting: awaiting cancel() here can hang on a stream the
+        // peer is still writing, which would hold the request open — the opposite of the point.
+        if (read >= BODY_LIMIT) { truncated = true; try { reader.cancel(); } catch { /* already gone */ } break; }
+      }
+    }
+    if (!read) return { body_bytes: 0, body_type: ctype || 'none' };
+    // Length comes from the header, never from how much we chose to read. `truncated` says
+    // the body was at least BODY_LIMIT, so a tell is never mistaken for a whole body.
+    const declared = parseInt(request.headers.get('content-length') || '', 10);
+    const bytes = Number.isFinite(declared) ? declared : (truncated ? -2 : read);
+    const joined = new Uint8Array(read);
+    let at = 0;
+    for (const c of chunks) { joined.set(c, at); at += c.length; }
+    const text = new TextDecoder('utf-8', { fatal: false }).decode(joined);
 
     const tells = [];
     for (const [rx, name] of PAYLOAD_MARKERS) if (rx.test(text)) tells.push(name);
@@ -1274,6 +1301,7 @@ async function bodyTell(request, sampleOn) {
 
     const out = {
       body_bytes: bytes,
+      ...(truncated ? { body_truncated: true, body_read: read } : {}),
       body_type: ctype || 'unknown',
       ...(tells.length ? { body_tells: [...new Set(tells)] } : {}),
       ...(fields.size ? { body_fields: [...fields].slice(0, 25) } : {}),

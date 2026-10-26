@@ -104,6 +104,37 @@ await test('A TARPIT THAT THROWS IS NOT A TARPIT: a bad body never raises', asyn
   if (typeof t.body_bytes !== 'number') throw new Error('should still report a length');
 });
 
+await test('RESOURCE EXHAUSTION: an oversized body is never buffered whole', async () => {
+  // The first version called arrayBuffer() then sliced, capping the DECODE and not the READ.
+  // A canary path is exactly where an attacker goes, so that pointed a memory lever at us.
+  const big = 'A'.repeat(2 * 1024 * 1024); // 2 MB, 512x the 4 KB limit
+
+  // With Content-Length, as a real HTTP request carries: the DECLARED size is recorded, never
+  // how much we chose to read, or a 2 MB attempt would be filed as a 4 KB one.
+  const withLen = new Request('https://x.test/wp-login.php', {
+    method: 'POST', headers: { 'content-type': 'text/plain', 'content-length': String(big.length) }, body: big,
+  });
+  const t = await bodyTell(withLen, true);
+  if (!t.body_truncated) throw new Error('a 2 MB body must be reported as truncated');
+  if (t.body_read > 4096) throw new Error(`read ${t.body_read} bytes, must stop at 4096`);
+  if (t.body_bytes !== big.length) throw new Error(`body_bytes ${t.body_bytes} should be the declared ${big.length}`);
+  if (t.body_sample && t.body_sample.length > 512) throw new Error('sample must stay capped');
+
+  // Without Content-Length (chunked), we must NOT claim to know the size. -2 means
+  // "at least BODY_LIMIT, exact size unknown" — an honest unknown rather than a false 4096.
+  const noLen = await bodyTell(req('POST', 'text/plain', big), false);
+  if (!noLen.body_truncated) throw new Error('chunked oversize must still be truncated');
+  if (noLen.body_bytes !== -2) throw new Error(`unknown length should be -2, got ${noLen.body_bytes}`);
+  if (noLen.body_read > 4096) throw new Error('chunked read must also stop at the limit');
+});
+
+await test('a truncated body still yields markers from what was read', async () => {
+  const payload = ';cat /etc/passwd' + 'B'.repeat(1024 * 1024);
+  const t = await bodyTell(req('POST', 'text/plain', payload), false);
+  if (!t.body_truncated) throw new Error('should be truncated');
+  has(t.body_tells, 'command-injection', 'markers must still fire on the portion we read');
+});
+
 await test('an empty body is distinguishable from an unread one', async () => {
   const t = await bodyTell(req('POST', 'application/json', ''), false);
   eq(t.body_bytes, 0, 'empty body');

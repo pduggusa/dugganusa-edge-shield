@@ -254,10 +254,20 @@ deception rather than blocking, so they keep their own switch.
 - **Scanner detection is UA + ASN-org based**, not IP based (IPs rotate).
 - **Verified crawlers fail closed.** A failed verification means "ordinary
   traffic", not "blocked", so failing closed costs a real crawler nothing.
+- **Deception outranks blocking on a trapped path** (2.21.0). The canary is resolved above
+  LAYER 1, and scanner-418 and IOC-403 stand aside when the path is a canary — otherwise the
+  scanner that takes the lure and submits to the decoy's own form action gets a teapot, and
+  the most committed attacker on the edge is the one we learn nothing from. The secret-file
+  probe handler still answers first; the IOC feed hit is still reported.
+- **Every door a decoy advertises must open.** A decoy's form `action` has to be a canary
+  path, or the submission falls through to the blocker. `test-decoy-actions.mjs` extracts the
+  action URLs from the shipped markup, so a new decoy fails the suite until its door is
+  trapped. Exceptions are allowed but must be named in the test with the reason — `/login/`
+  is excepted because cPanel shares it with half the web.
 - **Tests extract the shipped code** rather than reimplementing it:
   `node test-config-observe.mjs`, `node test-appliance-canaries.mjs`,
   `node test-crawler-verify.mjs` (the last one uses real DNS), `node test-origin-edge.mjs`, `node test-path-origins.mjs`,
-  `node test-harvested-observe.mjs`.
+  `node test-harvested-observe.mjs`, `node test-decoy-actions.mjs`.
 
 ## Support
 

@@ -2,6 +2,17 @@
 
 All notable changes to DugganUSA Edge Shield are documented here.
 
+## 2.21.0 — 2026-10-26
+
+- **The decoys were lures with a bouncer in front of the door.** Every appliance decoy serves a login form whose `action` tells the scanner where to submit. Those action paths *were* canaries — but LAYER 1 (scanner 418) and LAYER 2 (IOC 403) both ran first, so the one visitor who took the lure and actually submitted credentials got a teapot instead of a decoy. **Measured in the 17 hours after the 2.20.0 PHP-canary deploy: 3 hits on `/php/login.php`, two of them `l9scan/2.0` (LeakIX), all 418'd, none indexed.** PHP2Shell went to in-the-wild exploitation the same day, which is exactly when the follow-through matters.
+- The canary is now resolved above LAYER 1, and both blocking layers stand aside when the path is one we deliberately trapped. A 418 tells a scanner a shield is here and ends the exchange; the decoy tells them nothing true and buys what they do next. Nothing new is exposed — these paths already answered a decoy to every other unverified visitor.
+- **The secret-file probe handler still outranks the canary.** `/vpn/%2eenv` stays a config probe, never a decoy, and is still never indexed (2.13.2). Only the *resolution* moved; the *answer* order is unchanged, and there is now a test asserting that directly instead of inferring it from where a variable is declared.
+- **An IOC-listed IP that walks into a trap is decoyed rather than 403'd, but the feed hit is still reported.** Withholding the block without keeping the report would have quietly cost the feed-efficacy (liveness) axis every hit that landed on a canary.
+- New `test-decoy-actions.mjs` asserts the invariant rather than the paths: the advertised `action` URLs are extracted from the shipped markup at test time, so a future decoy with a new door fails the suite until that door is a canary too. 12 doors checked.
+- **One door is deliberately left shut, and it is written down in the test.** The cPanel decoy posts to `/login/?login_only=1`. cPanel canaries are in the always-on set, so trapping `/login/` would answer a decoy on a real login route for every customer running honeypots. Losing one decoy's follow-through costs less than breaking a customer sign-in.
+- `test-harvested-observe.mjs` now strips comments before asserting LAYER 0.5 never returns. It was matching the word "return" in prose and failed on a pure documentation move.
+- 8 suites pass.
+
 ## 2.20.0 — 2026-10-25
 
 - **PHP and NativePHP canaries, so the next PHP2Shell zero is evidence instead of blindness.** `ttp-check` for CVE-2026-109618 reported 32,954 edge blocks, 26,217 canary docs and 1,690 origin captures with zero PHP2Shell-shaped hits — while printing its own caveat that "no canary for a product = cannot appear here". We had no PHP decoy, so that zero could not have been anything else. New pack traps `/_native/` and `/_assets/` (the NativePHP async-task bridge and static-asset traversal RedEye Security reported as GHSA-83jv-8h7x-287p and GHSA-76px-r497-93p9), plus `/vendor/composer/` and `/_profiler/` — Composer-manifest and Symfony-profiler recon that our edge was *already* seeing un-trapped (`/vendor/composer/installed.json` 6 blocks, `/symfony/_profiler/phpinfo`, `/app_dev.php/_profiler/phpinfo`).

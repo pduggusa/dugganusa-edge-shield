@@ -110,7 +110,11 @@ await (async () => {
 })();
 
 // The hook must never change the response: no return, no Response, only waitUntil.
-const hook = slice('// LAYER 0.5: Harvested-path OBSERVATION', '// LAYER 1:');
+// Comments are stripped first: this is a property of the CODE, and prose in this window
+// (2.21.0 moved the honeypot opt-out note here, which contains the word "return") is not a
+// control-flow change. Matching comment text made this fail on a pure documentation move.
+const stripComments = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+const hook = stripComments(slice('// LAYER 0.5: Harvested-path OBSERVATION', '// LAYER 1:'));
 t('Layer 0.5 never returns, answers or posts: it only notes the match', () => {
   if (/\breturn\b/.test(hook) || /new Response/.test(hook)) throw new Error('hook returns or answers');
   if (!/ctx\.waitUntil\(pull\)/.test(hook)) throw new Error('refresh not in waitUntil');

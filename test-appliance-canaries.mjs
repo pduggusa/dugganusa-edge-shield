@@ -223,7 +223,11 @@ for (const p of ['/', '/config.json', '/api/v1/search/stats', '/post/key-pem-fil
 const sp = secretProbeResponse();
 check('secret probe answers plain 404', sp.status, 404);
 check('secret probe serves no decoy content', (await sp.text()).trim(), 'Not found');
-check('handler 404s secret probes before the crawler-exempt canary block', src.indexOf('const secretProbe =') > 0 && src.indexOf('const secretProbe =') < src.indexOf('const canary = (honeypotsEnabled && !verifiedCrawler)'), true);
+// 2.21.0 moved the canary RESOLUTION above the blocking layers so a scanner on a trapped
+// path is decoyed instead of 418'd. The property that matters was never where `canary` is
+// declared — it is that a secret probe is ANSWERED first, so /vpn/%2eenv stays a config
+// probe and never becomes a decoy. Assert the answer order, not the declaration order.
+check('handler 404s secret probes before the crawler-exempt canary block', src.indexOf('return secretProbeResponse();') > 0 && src.indexOf('return secretProbeResponse();') < src.indexOf('if (canary) {'), true);
 // Secret probes are NEVER indexed (2.13.2): one induced hit is not evidence about the requester.
 const req = (h = {}) => new Request('https://www.dugganusa.com/key.pem', { headers: h });
 check('handler never indexes secret probes', !/indexHoneypotHit\([^)]*secretProbe/.test(src), true);

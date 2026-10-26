@@ -1826,10 +1826,38 @@ async function handleFetch(request, env, ctx, obs) {
       }
     }
 
+    // OPT-OUT (2026-07-19). Honeypots send visitor IP, User-Agent, geo and the full request
+    // URL back to DugganUSA — see the Privacy section of the README. They also return
+    // deception content on matching paths, which collides with real routes: /graphql,
+    // /webmail/*, and anything containing `.env` all match. A customer serving those
+    // legitimately needs a way off, and the README documents this flag, so it has to work.
+    const honeypotsEnabled = String(env.HONEYPOTS_ENABLED ?? 'true').toLowerCase() !== 'false';
+    const path = reqUrl.pathname;
+
+    // Resolved HERE, before the blocking layers, so the two guards below can stand aside
+    // for a canary path. It is still only ANSWERED at LAYER 3, so the secret-file probe
+    // handler keeps its precedence (/vpn/%2eenv stays a config probe, never a decoy).
+    //
+    // WHY (2.21.0, measured 2026-10-26): a decoy serves a login form, the scanner submits to
+    // the action it advertises, and that submission arrived here as a scanner — so LAYER 1
+    // answered 418 and the canary never ran. Three hits on /php/login.php in the 17 hours
+    // after the 2.20.0 PHP-canary deploy, two of them l9scan/2.0, all 418'd, none indexed.
+    // The door was a canary all along; the bouncer stood in front of it.
+    //
+    // A scanner on a canary path is precisely who the canary is for, and the two responses
+    // are not equal: a 418 tells them a shield is here and ends it, while the decoy tells
+    // them nothing true and buys the one thing worth having — what they do next. Blocking
+    // is the right default everywhere else, which is why this stands aside only on a path
+    // we deliberately trapped. Nothing new is exposed: these paths already answer a decoy
+    // to every unverified visitor.
+    const canary = (honeypotsEnabled && !verifiedCrawler)
+      ? (getCanary(path) || (applianceCanariesEnabled(env, hostname) ? getApplianceCanary(path) : null))
+      : null;
+
     // ============================================================
     // LAYER 1: Scanner detection — return 418 I'm a Teapot
     // ============================================================
-    if (cfg.scanner418 && !verifiedCrawler && detectScanner(ua, asnOrg)) {
+    if (cfg.scanner418 && !verifiedCrawler && !canary && detectScanner(ua, asnOrg)) {
       if (!cfg.observe) return scannerResponse(request, cf);
       observed.push('scanner');
       logObserved('scanner-418', ip, hostname, reqUrl.pathname, rayId);
@@ -1838,14 +1866,17 @@ async function handleFetch(request, env, ctx, obs) {
     // ============================================================
     // LAYER 2: IOC blocking — known malicious IPs get 403
     // ============================================================
+    // Same stand-aside: a listed IP that walks into a trap is already known, so a 403 buys
+    // nothing a decoy does not. The match is still REPORTED — only the 403 is withheld, or
+    // the feed-efficacy (liveness) axis would quietly lose every hit that landed on a trap.
     if (cfg.iocBlocking && !verifiedCrawler && ip && checkIOC(ip)) {
       // Report the hit to the feed-efficacy (liveness) axis — non-blocking,
       // privacy-preserving (indicator only, never the visitor/asset). In observe
       // mode the match is still reported, as 'observed': the evidence is the same.
       if (apiKey && cfg.feedHitReporting) {
-        ctx.waitUntil(reportFeedHit(env, ip, hostname, rayId, cfg.observe ? 'observed' : 'blocked'));
+        ctx.waitUntil(reportFeedHit(env, ip, hostname, rayId, (cfg.observe || canary) ? 'observed' : 'blocked'));
       }
-      if (!cfg.observe) return blockedResponse(ip);
+      if (!cfg.observe && !canary) return blockedResponse(ip);
       observed.push('ioc');
       logObserved('ioc-403', ip, hostname, reqUrl.pathname, rayId);
     }
@@ -1859,10 +1890,10 @@ async function handleFetch(request, env, ctx, obs) {
     // real routes: /graphql, /webmail/*, and anything containing `.env` all match.
     // A customer serving those legitimately needs a way off, and the README now
     // documents this flag, so it has to actually work.
-    const honeypotsEnabled = String(env.HONEYPOTS_ENABLED ?? 'true').toLowerCase() !== 'false';
+    // (`honeypotsEnabled` and `path` are declared above LAYER 1, because the canary has to
+    // be resolved before the blocking layers can stand aside for it.)
     // Honeypots are NOT affected by SHIELD_MODE: they are deception, not blocking,
     // and have their own switch. Observe mode does not turn them off.
-    const path = reqUrl.pathname;
     // Verified crawlers are exempt: a canary returns a convincing fake 200 full of
     // invented shell output or fake API keys, and a search engine would index that
     // against the customer's own domain.
@@ -1882,10 +1913,9 @@ async function handleFetch(request, env, ctx, obs) {
       return secretProbeResponse();
     }
 
-    // Existing canaries take precedence, so /vpn/%2eenv still counts as a config probe.
-    const canary = (honeypotsEnabled && !verifiedCrawler)
-      ? (getCanary(path) || (applianceCanariesEnabled(env, new URL(request.url).hostname) ? getApplianceCanary(path) : null))
-      : null;
+    // `canary` was resolved above LAYER 1 so the blocking layers could stand aside for a
+    // trapped path; it is answered only here, which is what keeps the secret-file probe
+    // handler ahead of it — /vpn/%2eenv still counts as a config probe, never a decoy.
     if (canary) {
       obs.edgeDecoy = true; // a decoy 200 is still "no real content" for harvested-path observation
       // Index the attacker's fingerprint into the STIX feed (non-blocking)

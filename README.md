@@ -310,6 +310,14 @@ instead of your real response**, and the requesting IP will be reported to us as
 scanner. If you serve any of those paths legitimately, disable honeypots or edit
 `CANARY_PATHS` before deploying.
 
+Since **2.21.0** a canary path also takes precedence over the scanner 418 and the IOC
+403: a request to a trapped path is decoyed rather than blocked, even from a known
+scanner or a listed IP. The feed hit is still reported, and the secret-file probe
+handler still answers first. This matters for collisions — if a canary path overlaps one
+of your real routes, a visitor you would otherwise have blocked now receives deception
+content instead. One more reason to check the list against your routes before enabling
+honeypots.
+
 ---
 
 ## Also From DugganUSA

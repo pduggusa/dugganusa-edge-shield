@@ -1190,6 +1190,108 @@ function getSecretProbe(path) {
   return null;
 }
 
+// ================================================================
+// WHAT THEY SENT (2.22.0, 2026-10-26) — the tarpit tells, not just the trap
+// ================================================================
+// A 30-day census of 25,915 canary hits found the instrument answering the wrong question.
+// We recorded WHO touched WHICH path, and almost nothing about what they actually sent:
+//
+//   - 4,973 hits (19.2%) were POST. Zero request bodies were captured, ever.
+//   - 1,920 hits (7.4%) carried a query string, and the exploit markers never saw it:
+//     getApplianceCanary() takes `pathname` only.
+//   - `exploit_path` fired ONCE in 25,915, while the URLs we already stored contained 332
+//     path traversals, 21 double-encoded traversals and 19 phpinfo probes. The marker was
+//     defined narrowly per-branch, so a traversal into a WordPress canary counted for nothing.
+//
+// That gap is the left-of-boom thesis losing its edge instrument. A GET sweep reading a path
+// list and a POST carrying a working exploit are different animals arriving at the same door,
+// and a feed that cannot separate them is a visitor log. The low-rate, payload-bearing one is
+// the signal; the 11,570 wp-login hits are weather.
+//
+// PRIVACY FIRST, because this is a real escalation. We derive a TELL, not a transcript:
+// which markers matched, the body's length and content type, and the NAMES of submitted
+// fields — never their values. A login form tells us it is a login form; the credential
+// someone typed is not ours to keep, and the existing default_creds boolean already set that
+// precedent. Raw sampling stays behind CANARY_BODY_SAMPLE, default OFF.
+const PAYLOAD_MARKERS = [
+  [/\.\.(?:%2f|%5c|\/|\\)|%252e%252e|\.\.%255c|\.\.\.\.(?:\/\/|\\)/i, 'traversal'],
+  [/%252e|%25 ?2f/i, 'double-encoded'],
+  [/upload_progress/i, 'upload-progress'],
+  [/\|o:\d|o:\d+:"/i, 'php-object-injection'],
+  [/unserialize/i, 'unserialize'],
+  [/phpinfo/i, 'phpinfo'],
+  [/union[\s+%20]+select/i, 'sqli'],
+  [/<script|%3cscript/i, 'xss'],
+  [/\$\{jndi:/i, 'jndi'],
+  [/(?:;|%3b|\||%7c|`|\$\()\s*(?:cat|curl|wget|id|whoami|nc|sh|bash)\b/i, 'command-injection'],
+  [/eval\(|base64_decode|system\(|passthru\(|shell_exec/i, 'code-exec-primitive'],
+  [/\/etc\/passwd|\/var\/run\/secrets|id_rsa|\.aws\/credentials/i, 'credential-target'],
+];
+
+// Markers found anywhere in the request line — path AND query. Decoding is attempted once so
+// an encoded payload is not invisible, but the raw form is tested too.
+function urlTells(rawPath, search) {
+  const subject = String(rawPath || '') + String(search || '');
+  const decoded = safeDecode(subject);
+  const out = [];
+  for (const [rx, name] of PAYLOAD_MARKERS) {
+    if (rx.test(subject) || rx.test(decoded)) out.push(name);
+  }
+  return out;
+}
+
+// Field names whose VALUE is never recorded, in any mode.
+const SECRET_FIELD_RX = /pass|pwd|secret|token|key|auth|session|cookie|otp|mfa|credential|card|cvv|ssn/i;
+
+/**
+ * A bounded, redacted reading of a request body. Never throws into the response path: a tarpit
+ * that 500s because it could not parse a body has stopped being a tarpit.
+ * Reads at most BODY_LIMIT bytes from a CLONE, so the decoy response is unaffected.
+ */
+const BODY_LIMIT = 4096;
+async function bodyTell(request, sampleOn) {
+  const method = request.method;
+  if (method === 'GET' || method === 'HEAD') return null;
+  try {
+    const ctype = (request.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
+    const buf = await request.clone().arrayBuffer();
+    const bytes = buf.byteLength;
+    if (!bytes) return { body_bytes: 0, body_type: ctype || 'none' };
+    const text = new TextDecoder('utf-8', { fatal: false }).decode(buf.slice(0, BODY_LIMIT));
+
+    const tells = [];
+    for (const [rx, name] of PAYLOAD_MARKERS) if (rx.test(text)) tells.push(name);
+
+    // Field NAMES only. urlencoded and multipart both yield names cheaply; JSON yields keys.
+    const fields = new Set();
+    if (ctype === 'application/x-www-form-urlencoded') {
+      for (const m of text.matchAll(/(^|&)([^=&]{1,40})=/g)) fields.add(decodeURIComponent(m[2]));
+    } else if (ctype.startsWith('multipart/')) {
+      for (const m of text.matchAll(/name="([^"]{1,40})"/g)) fields.add(m[1]);
+    } else if (ctype === 'application/json') {
+      for (const m of text.matchAll(/"([^"]{1,40})"\s*:/g)) fields.add(m[1]);
+    }
+
+    const out = {
+      body_bytes: bytes,
+      body_type: ctype || 'unknown',
+      ...(tells.length ? { body_tells: [...new Set(tells)] } : {}),
+      ...(fields.size ? { body_fields: [...fields].slice(0, 25) } : {}),
+      ...(fields.size && [...fields].some(f => SECRET_FIELD_RX.test(f)) ? { body_has_secret_field: true } : {}),
+    };
+    // Opt-in raw sample, redacted. Off unless the operator turns it on, and even then the
+    // value of anything that looks like a credential is replaced before storage.
+    if (sampleOn) {
+      out.body_sample = text.slice(0, 512)
+        .replace(/([^=&\s"]*(?:pass|pwd|secret|token|key|auth|otp|credential)[^=&\s"]*)=([^&\s]*)/gi, '$1=[redacted]')
+        .replace(/("[^"]*(?:pass|pwd|secret|token|key|auth|otp|credential)[^"]*"\s*:\s*)"[^"]*"/gi, '$1"[redacted]"');
+    }
+    return out;
+  } catch {
+    return { body_bytes: -1, body_type: 'unreadable' };
+  }
+}
+
 // How a secret probe arrived. Telemetry only: a label for counting, never a reason to block.
 const AI_FETCHER_UA = ['chatgpt-user', 'oai-searchbot', 'gptbot', 'perplexity-user', 'perplexitybot', 'claude-user',
   'claude-searchbot', 'claudebot', 'claude-web', 'meta-externalfetcher', 'meta-externalagent', 'gemini',
@@ -1501,7 +1603,7 @@ function honeypotResponse(request, cf, canary) {
   });
 }
 
-async function indexHoneypotHit(env, request, cf, canary) {
+async function indexHoneypotHit(env, request, cf, canary, tell = {}) {
   const apiKey = env.DUGGANUSA_API_KEY;
   if (!apiKey) return;
 
@@ -1540,6 +1642,14 @@ async function indexHoneypotHit(env, request, cf, canary) {
       // exploit_path was computed for Ivanti/Cisco/Palo/SharePoint since 2.10.0 but never
       // persisted here, so every exploit marker was dropped before indexing. Fixed 2.12.0.
       ...(canary.exploit_path ? { exploit_path: true } : {}),
+      // 2.22.0: the tell. `exploit_path` fired once in 25,915 hits because it was defined
+      // per-canary-branch over the pathname alone; these are computed over path + query and
+      // over the request body, for every canary type. url_tells/body_tells are marker NAMES,
+      // body_fields are field names without their values.
+      ...tell,
+      // A single flag downstream can key on without knowing the marker vocabulary: this
+      // request carried something, as opposed to reading a path list.
+      ...((tell.url_tells || tell.body_tells) ? { carried_payload: true } : {}),
       // A default-credential Basic header (admin:admin, seen in the SMA1000 CouchDB SSRF probes)
       // is recorded as a boolean only; the credential itself is never stored.
       ...(/^[Bb]asic\s+YWRtaW46YWRtaW4=?$/.test(request.headers.get('authorization') || '') ? { default_creds: true } : {}),
@@ -1918,8 +2028,17 @@ async function handleFetch(request, env, ctx, obs) {
     // handler ahead of it — /vpn/%2eenv still counts as a config probe, never a decoy.
     if (canary) {
       obs.edgeDecoy = true; // a decoy 200 is still "no real content" for harvested-path observation
+      // What they SENT, not just which door they tried (2.22.0). Markers run over path AND
+      // query, and a non-GET body is read from a clone, bounded and redacted. Awaited rather
+      // than fired into waitUntil, because the body must be read before the response closes;
+      // bodyTell never throws, so a malformed body cannot break the decoy.
+      const tell = {
+        ...(urlTells(path, new URL(request.url).search).length
+          ? { url_tells: urlTells(path, new URL(request.url).search) } : {}),
+        ...(await bodyTell(request, String(env.CANARY_BODY_SAMPLE ?? '').toLowerCase() === 'true') || {}),
+      };
       // Index the attacker's fingerprint into the STIX feed (non-blocking)
-      ctx.waitUntil(indexHoneypotHit(env, request, cf, canary));
+      ctx.waitUntil(indexHoneypotHit(env, request, cf, canary, tell));
       // Return convincing fake response — waste their time
       return honeypotResponse(request, cf, canary);
     }

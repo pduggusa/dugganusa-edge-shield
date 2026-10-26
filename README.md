@@ -274,6 +274,21 @@ When a request hits one, `indexHoneypotHit()` sends us:
 - the full **User-Agent**
 - **city, region, country, ASN** and ASN organisation
 - the **full request URL**, HTTP method, TLS version and Cloudflare bot score
+- since **2.22.0**, a reading of what the request **carried**: which attack-shaped markers
+  matched the URL or the body (`traversal`, `sqli`, `jndi`, `command-injection` and similar),
+  the body's **length and content type**, and the **names** of submitted form or JSON fields
+
+**What 2.22.0 does NOT send, by design.** Field *values* are never recorded. If a request
+posts `password=hunter2`, we keep the fact that a field called `password` was present and
+throw the value away — the same line the existing `default_creds` boolean already drew. The
+raw body is not stored at all unless an operator sets `CANARY_BODY_SAMPLE = "true"`, which is
+off by default; even then the sample is capped at 512 bytes and credential-shaped values are
+replaced with `[redacted]` before it leaves the edge.
+
+Why we added it: a 30-day census of 25,915 canary hits found 4,973 POSTs with no body ever
+captured and an exploit marker that had fired once, because it only ever read the path. We
+could tell you someone knocked, not whether they were reading a list of doors or carrying a
+working key. Those are different threats and only one of them is worth waking up for.
 
 That is visitor data and site data. **An earlier version of this README stated we
 see none of it. That was wrong** — the code always sent it. We corrected the

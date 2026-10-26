@@ -2,6 +2,15 @@
 
 All notable changes to DugganUSA Edge Shield are documented here.
 
+## 2.22.0 — 2026-10-26
+
+- **The tarpit now tells us what they sent, not just which door they tried.** A 30-day census of 25,915 canary hits found the instrument answering the wrong question: **4,973 hits (19.2%) were POST and not one request body had ever been captured**, 1,920 carried a query string the exploit markers never saw (`getApplianceCanary()` takes `pathname` only), and **`exploit_path` had fired exactly once in 25,915** — while the URLs we already stored contained 332 path traversals, 21 double-encoded traversals and 19 phpinfo probes. The marker was defined narrowly inside each canary branch, so a traversal into a WordPress canary counted for nothing.
+- Markers are now one list applied to **path + query + body**, for every canary type: traversal, double-encoded, upload-progress, PHP object injection, unserialize, phpinfo, SQLi, XSS, JNDI, command injection, code-exec primitives and credential targets. A hit that carried anything gets a single `carried_payload` flag downstream, so a consumer does not need the marker vocabulary.
+- **Why this is the left-of-boom instrument.** A GET sweep reading a path list and a POST carrying a working exploit arrive at the same door and mean opposite things. 11,570 `wp-login.php` hits are weather. The low-rate, payload-bearing request is the signal, and until now the edge could not separate them — which left our primary thesis without an instrument at the place it most needed one.
+- **Privacy: we keep the tell, never the credential.** Field *names* are recorded, values never. A login form tells us it is a login form; `password=hunter2` is stored as "a field named password was present". Raw body sampling sits behind `CANARY_BODY_SAMPLE` (default **off**), capped at 512 bytes, with credential-shaped values replaced by `[redacted]` before they leave the edge. The README privacy section is updated in the same commit rather than after the fact.
+- Bodies are read from a **clone**, bounded at 4 KB, and `bodyTell()` never throws — a tarpit that 500s on a malformed body has stopped being a tarpit. There is a test for exactly that.
+- `test-payload-tells.mjs`: 11 tests, including two that assert a credential value cannot survive in either mode. 9 suites pass.
+
 ## 2.21.0 — 2026-10-26
 
 - **The decoys were lures with a bouncer in front of the door.** Every appliance decoy serves a login form whose `action` tells the scanner where to submit. Those action paths *were* canaries — but LAYER 1 (scanner 418) and LAYER 2 (IOC 403) both ran first, so the one visitor who took the lure and actually submitted credentials got a teapot instead of a decoy. **Measured in the 17 hours after the 2.20.0 PHP-canary deploy: 3 hits on `/php/login.php`, two of them `l9scan/2.0` (LeakIX), all 418'd, none indexed.** PHP2Shell went to in-the-wild exploitation the same day, which is exactly when the follow-through matters.

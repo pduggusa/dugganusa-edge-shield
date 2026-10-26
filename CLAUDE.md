@@ -233,6 +233,7 @@ warning in Workers Logs. Full comments live in `wrangler.example.toml`.
 | `RL_ANON` | `100` | requests/min per IP, `0` disables |
 | `RL_AUTH` | `500` | requests/min per IP with a key, `0` disables |
 | `HONEYPOTS_ENABLED` | `true` | `true` / `false` |
+| `CANARY_BODY_SAMPLE` | unset (off) | `true` / `false`. Stores up to 512 bytes of a canary hit's raw request body, credential-shaped values replaced with `[redacted]`. **Off by default and should stay off unless you are actively hunting a payload** — 2.22.0 already records marker names, body length, content type and field NAMES without it, which answers "scanner or exploit" on its own |
 | `APPLIANCE_CANARIES` | unset | unset = DugganUSA zones only; `true` / `false` |
 | `HARVESTED_OBSERVE` | unset | unset = DugganUSA zones only; `true` / `false`. Pass-through observation of public-PoC exploit paths; reports CVE, path, ASN, country and method to DugganUSA (never your hostname, the visitor's UA or network), never blocks |
 | `FEED_HIT_REPORTING` | `true` | `true` / `false` |

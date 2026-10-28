@@ -1098,6 +1098,49 @@ const PHP_EXPLOIT_MARKERS = [
   'upload_progress', '|o:', 'unserialize', 'phpinfo',      // payload markers in path or query
 ];
 
+// ================================================================
+// APP-CONSOLE CANARIES — Tomcat / JBoss / Zabbix / Nagios / Yii (2026-10-28)
+// ================================================================
+// Measured from our OWN Cloudflare firewall events, 24h to 2026-10-28T15:22Z:
+// /manager/html was the single most-probed path we own at 508 requests — ahead of every
+// .env variant. Then /debug/default/view 153, /zabbix/ 112, /nagios/ 86, /dbadmin 82,
+// /jmx-console/ 80. NONE of those strings appeared anywhere in this worker, so every one
+// of those probes that reaches us was answered as an ordinary 404: no canary record, no
+// attribution, no payload, nothing in iocs.
+//
+// The .env half of that same measurement needed NO change and got none: getCanary()
+// already catches `.env` anywhere in the path, so /apps/.env and /backend/laravel/.env
+// were trapped all along. The apparent "directory-prefix gap" was an artifact of
+// searching 151K near-identical .env canary docs, not a real hole.
+//
+// fake: 'admin' reuses an existing response shape on purpose — a new family is not a
+// reason to ship new fake-response code.
+const APPCONSOLE_CANARIES = [
+  { type: 'tomcat_scan', product: 'apache-tomcat-manager',
+    exact: ['/manager/html', '/manager/status', '/manager/text/list', '/host-manager/html'],
+    prefixes: ['/manager/', '/host-manager/'] },
+  { type: 'jboss_scan', product: 'jboss-jmx-console',
+    exact: ['/jmx-console', '/web-console'], prefixes: ['/jmx-console/', '/web-console/'] },
+  { type: 'zabbix_scan', product: 'zabbix-frontend',
+    exact: ['/zabbix', '/zabbix/index.php'], prefixes: ['/zabbix/'] },
+  { type: 'nagios_scan', product: 'nagios-web',
+    exact: ['/nagios'], prefixes: ['/nagios/'] },
+  { type: 'yii_debug_probe', product: 'yii2-debug-toolbar',
+    exact: ['/debug/default/view', '/frontend/web/debug/default/view'],
+    prefixes: ['/debug/default/', '/frontend/web/debug/'] },
+  { type: 'dbadmin_probe', product: 'db-admin-console',
+    exact: ['/dbadmin', '/dbadmin/index.php'], prefixes: ['/dbadmin/'] },
+];
+
+function getAppConsoleCanary(lower, withSlash) {
+  for (const fam of APPCONSOLE_CANARIES) {
+    if (fam.exact.includes(lower) || fam.prefixes.some(pre => withSlash.startsWith(pre))) {
+      return { type: fam.type, fake: 'admin', product: fam.product };
+    }
+  }
+  return null;
+}
+
 function getApplianceCanary(path) {
   // ENCODED-PATH MARKER: a hit whose RAW path differs from its decoded form is the
   // WAF-bypass variant, which is worth knowing separately from a plain probe.
@@ -1113,6 +1156,8 @@ function getApplianceCanary(path) {
         FORTINET_CANARY_PREFIXES.some(pre => withSlash.startsWith(pre))) {
       return { type: 'fortinet_scan', fake: 'fortigate', product: 'fortinet-fortigate' };
     }
+    const appConsole = getAppConsoleCanary(lower, withSlash);
+    if (appConsole) return { ...appConsole, ...(encoded ? { encoded_path: true } : {}) };
     if (PEOPLESOFT_CANARY_PREFIXES.some(pre => withSlash.startsWith(pre))) {
       return { type: 'peoplesoft_scan', fake: 'peoplesoft', product: 'oracle-peoplesoft', ...(encoded ? { encoded_path: true } : {}) };
     }

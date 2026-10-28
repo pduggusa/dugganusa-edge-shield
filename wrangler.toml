@@ -42,6 +42,33 @@ routes = [
   { pattern = "analytics.dugganusa.com/administrator/*", zone_name = "dugganusa.com" },
   { pattern = "analytics.dugganusa.com/_debug/*", zone_name = "dugganusa.com" },
   { pattern = "security.dugganusa.com/phpmyadmin/*", zone_name = "dugganusa.com" },
+  # App consoles (2026-10-28). The matcher shipped in de861d2 but only the apex and www
+  # are catch-all routes, so these two path-listed hosts never invoked it. Measured from
+  # our own Cloudflare firewall events; none of these paths are served by us.
+  # Tomcat manager — 508 probes/24h on the apex, our most-probed path
+  { pattern = "analytics.dugganusa.com/manager/*", zone_name = "dugganusa.com" },
+  { pattern = "analytics.dugganusa.com/host-manager/*", zone_name = "dugganusa.com" },
+  # JBoss
+  { pattern = "analytics.dugganusa.com/jmx-console*", zone_name = "dugganusa.com" },
+  { pattern = "analytics.dugganusa.com/web-console*", zone_name = "dugganusa.com" },
+  # Zabbix — 112/24h
+  { pattern = "analytics.dugganusa.com/zabbix*", zone_name = "dugganusa.com" },
+  # Nagios — 86/24h
+  { pattern = "analytics.dugganusa.com/nagios*", zone_name = "dugganusa.com" },
+  # Yii2 debug toolbar — 153/24h
+  { pattern = "analytics.dugganusa.com/debug/default/*", zone_name = "dugganusa.com" },
+  { pattern = "analytics.dugganusa.com/frontend/web/debug/*", zone_name = "dugganusa.com" },
+  # db admin console — 82/24h
+  { pattern = "analytics.dugganusa.com/dbadmin*", zone_name = "dugganusa.com" },
+  { pattern = "security.dugganusa.com/manager/*", zone_name = "dugganusa.com" },
+  { pattern = "security.dugganusa.com/host-manager/*", zone_name = "dugganusa.com" },
+  { pattern = "security.dugganusa.com/jmx-console*", zone_name = "dugganusa.com" },
+  { pattern = "security.dugganusa.com/web-console*", zone_name = "dugganusa.com" },
+  { pattern = "security.dugganusa.com/zabbix*", zone_name = "dugganusa.com" },
+  { pattern = "security.dugganusa.com/nagios*", zone_name = "dugganusa.com" },
+  { pattern = "security.dugganusa.com/debug/default/*", zone_name = "dugganusa.com" },
+  { pattern = "security.dugganusa.com/frontend/web/debug/*", zone_name = "dugganusa.com" },
+  { pattern = "security.dugganusa.com/dbadmin*", zone_name = "dugganusa.com" },
   # Webshell probes
   { pattern = "analytics.dugganusa.com/shell.php", zone_name = "dugganusa.com" },
   { pattern = "analytics.dugganusa.com/cmd.php", zone_name = "dugganusa.com" },

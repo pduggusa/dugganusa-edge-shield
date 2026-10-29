@@ -27,8 +27,20 @@ All notable changes to DugganUSA Edge Shield are documented here.
 - A match reuses the existing `shell` decoy response (no new fake-response code for a new
   family) and is indexed with the matched tool name in a new `honeypot_meta.tool` field,
   separate from `product` — `tool` is the kit, `product` is the vulnerable software.
-- `test-php2shell-boundary.mjs`: 8 tests, including the two look-alikes and an ordinary
-  `WebKitFormBoundary` negative. 10 suites pass (533 tests).
+- **Same-day fix, caught by automated security review before anyone pulled the feed:** a
+  boundary-header match ALONE was being indexed as a confidence-95 IOC — but the four
+  boundary strings are now public (our own post names one, Zscaler's writeup names all four),
+  so anyone who read either, or a browser `fetch()` with the right Content-Type, could trigger
+  it with zero exploit knowledge. That would have let anyone poison our own feed with fake
+  PHP2Shell hits under our source. Fixed: indexing now requires body corroboration (one of
+  `upload-progress`, `php-object-injection`, `unserialize` — markers real exploit tooling
+  actually sends) in addition to the header. An uncorroborated header still gets the decoy
+  (cheap, no downside) and is still logged for counting, never indexed — the same posture
+  secret-file probes already use for a signal that proves nothing about who sent it. Also
+  tightened the header check itself to parse the `boundary=` parameter rather than substring-
+  matching the whole Content-Type header.
+- `test-php2shell-boundary.mjs`: 10 tests, including the two look-alikes, an ordinary
+  `WebKitFormBoundary` negative, and the corroboration-gate check. 10 suites pass (535 tests).
 
 ## 2.22.0 — 2026-10-26
 

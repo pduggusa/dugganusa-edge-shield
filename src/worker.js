@@ -1148,13 +1148,23 @@ const PHP2SHELL_BOUNDARY_MARKERS = [
 function getPhp2ShellBoundaryCanary(request) {
   const ctype = request.headers.get('content-type') || '';
   if (!ctype.toLowerCase().startsWith('multipart/')) return null;
+  // Match the BOUNDARY PARAMETER specifically, not the whole header string — a substring
+  // match over the full Content-Type would also fire on an unrelated param that happened to
+  // contain one of these words, which 'includes' over the raw header cannot rule out.
+  const m = /boundary\s*=\s*"?([^;"]*)"?/i.exec(ctype);
+  const boundary = m ? m[1] : '';
   for (const [marker, tool] of PHP2SHELL_BOUNDARY_MARKERS) {
-    if (ctype.includes(marker)) {
+    if (boundary.includes(marker)) {
       return { type: 'php2shell_boundary', fake: 'shell', product: 'php-cve-2026-109618-109619', tool };
     }
   }
   return null;
 }
+
+// Body markers (from the shared PAYLOAD_MARKERS vocabulary) that corroborate a boundary
+// match actually carries exploit content, not just a copied Content-Type header. Required
+// before a php2shell_boundary canary hit is indexed — see the call site in fetch().
+const PHP2SHELL_CORROBORATING_TELLS = new Set(['upload-progress', 'php-object-injection', 'unserialize']);
 
 // ================================================================
 // APP-CONSOLE CANARIES — Tomcat / JBoss / Zabbix / Nagios / Yii (2026-10-28)
@@ -2267,8 +2277,26 @@ async function handleFetch(request, env, ctx, obs) {
           ? { url_tells: urlTells(path, new URL(request.url).search) } : {}),
         ...(await bodyTell(request, String(env.CANARY_BODY_SAMPLE ?? '').toLowerCase() === 'true') || {}),
       };
-      // Index the attacker's fingerprint into the STIX feed (non-blocking)
-      ctx.waitUntil(indexHoneypotHit(env, request, cf, canary, tell));
+      // The PHP2Shell boundary canary matches a HEADER ALONE — and the four boundary
+      // strings are now public (our own 2026-10-28 post named one, Zscaler's writeup names
+      // all four). Anyone who read either, or a browser pointed at `fetch()` with that exact
+      // Content-Type, can trigger it with zero exploit knowledge. Caught by automated
+      // security review before this shipped: indexing a bare header match at confidence 95
+      // would let anyone poison our own feed with fake PHP2Shell hits under our source.
+      // Require body corroboration — one of the markers real exploit tooling actually sends
+      // (upload-progress, PHP object injection, unserialize) — before promoting it to an
+      // indexed IOC. An uncorroborated header still gets the decoy (cheap, no downside) and
+      // is still logged for counting, same posture as secret-file probes: a signal that
+      // proves nothing about who sent it is never indexed as attribution.
+      const boundaryUncorroborated = canary.type === 'php2shell_boundary' &&
+        !(tell.body_tells || []).some(m => PHP2SHELL_CORROBORATING_TELLS.has(m));
+      if (boundaryUncorroborated) {
+        console.log(JSON.stringify({ shield: 'php2shell-boundary-uncorroborated', tool: canary.tool,
+          path, asn: cf.asn, colo: cf.colo }));
+      } else {
+        // Index the attacker's fingerprint into the STIX feed (non-blocking)
+        ctx.waitUntil(indexHoneypotHit(env, request, cf, canary, tell));
+      }
       // Return convincing fake response — waste their time
       return honeypotResponse(request, cf, canary);
     }

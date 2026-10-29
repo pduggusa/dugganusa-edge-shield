@@ -83,5 +83,27 @@ await test('a GET or HEAD with a multipart content-type header (nonsensical but 
   ok(c && c.tool === 'shellflow', 'this is a header check, not a method check — matches by design');
 });
 
+await test('a boundary-only match is never indexed without body corroboration (security review finding)', async () => {
+  // The four boundary strings are now public (our own post names one, Zscaler's writeup
+  // names all four), so a header-only check is forgeable by anyone with zero exploit
+  // knowledge — a browser fetch() with the right Content-Type is enough. Static check: the
+  // call site must gate indexHoneypotHit on a body-corroborating tell, not fire on the
+  // canary match alone.
+  const callSite = src.slice(src.indexOf('const tell = {'), src.indexOf('// Return convincing fake response'));
+  ok(/boundaryUncorroborated/.test(callSite), 'the call site has no corroboration gate — this would re-expose the finding');
+  ok(/php2shell_boundary/.test(callSite), 'the gate must be scoped to the boundary canary type');
+  ok(/if\s*\(\s*boundaryUncorroborated\s*\)/.test(callSite) &&
+     /else\s*{[^}]*ctx\.waitUntil\(indexHoneypotHit/.test(callSite),
+     'indexHoneypotHit must be in the ELSE branch of the uncorroborated check, not unconditional');
+});
+
+await test('the corroborating-tells set only accepts BODY evidence, not the boundary string itself', async () => {
+  const setSrc = slice('const PHP2SHELL_CORROBORATING_TELLS', ';');
+  ok(/upload-progress/.test(setSrc) && /php-object-injection/.test(setSrc) && /unserialize/.test(setSrc),
+    'expected the three real-exploit body markers');
+  ok(!/shellflow|NeoMM2026|VERIFY|Nuclei/.test(setSrc),
+    'the corroboration set must not accept the boundary strings themselves as their own proof');
+});
+
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

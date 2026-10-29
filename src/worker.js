@@ -1141,6 +1141,60 @@ function getAppConsoleCanary(lower, withSlash) {
   return null;
 }
 
+// ================================================================
+// APPLIANCE CANARIES — Silent Train edge management (2026-10-29, 2.23.0)
+// ================================================================
+// Black Lotus Labs (Lumen) published Volt Typhoon's "Silent Train" relay framework on
+// 2026-10-28: compromised edge devices chained as hops (Intelbras modems overseas, Netgear
+// Orbi in the US) to launder the origin of intrusions into telecom, government, defense,
+// utilities, satellite, MSPs and emergency services.
+//
+// The part worth acting on is not the relay, it is the entry list. Every zero-day in the
+// reported stack is ALREADY on CISA KEV, and all but one due date passed long ago (measured
+// against the 2026-10-28 catalog, 1,762 entries):
+//   CVE-2024-39717  Versa Director                  KEV 2024-08-23  due 2024-09-13
+//   CVE-2025-8875   N-able N-Central                KEV 2025-08-13  due 2025-08-20
+//   CVE-2025-8876   N-able N-Central                KEV 2025-08-13  due 2025-08-20
+//   CVE-2026-16812  Arista VeloCloud Orchestrator   KEV 2026-07-27  due 2026-07-30
+//   CVE-2026-20127  Cisco Catalyst SD-WAN           KEV 2026-02-25  due 2026-02-27
+// Cisco Catalyst SD-WAN Manager is ALREADY covered by the 2.11.0 Cisco pack (/dataservice/,
+// /j_security_check — verified live on analytics, it answers the vManage decoy). This pack is
+// the other three, which were blind: the MSP/SD-WAN management plane.
+//
+// MEASURED FIRST, same discipline as every pack above. ttp-check 2026-10-29 over
+// /dataservice/|/versa/|/vnms/|/dms/|/dms2/|/vco/ since 2026-08-01: ZERO matches in 70,005
+// edge blocks, 82,642 canary docs and 5,213 origin captures. ttp-check says in its own output
+// that "no canary for a product = cannot appear here", so that zero was BLINDNESS, not
+// evidence of nobody scanning. This pack is what makes the next zero mean something — the
+// same sentence the PHP pack earned on 2026-10-25.
+//
+// COLLISION CHECKED 2026-10-29 before adding — all 404 on BOTH www (Wix) and analytics (ours):
+// /versa/vnms/login, /vnms/api/config, /dms/FileDownload, /dms2/fileupload, /vco/login,
+// /velocloud/portal. We run no Versa, no N-central and no VeloCloud, so nothing of ours lives
+// under these prefixes.
+// Deliberately NOT trapped, because they collide with real routes on our zones or half the web:
+// /portal/, /login/, /api/, /download/, /admin/. VeloCloud fingerprinters do hit /portal/ —
+// that is exactly why it is excluded, and it costs us that one axis.
+const SILENT_TRAIN_CANARY_PREFIXES = ['/versa/', '/vnms/', '/dms/', '/dms2/', '/vco/', '/velocloud/'];
+// Versa CVE-2024-39717 is the Change Favicon upload: a .png that is really a JSP/WAR, which
+// became the VersaMem in-memory implant. N-able CVE-2025-8875 is insecure Java deserialization,
+// so a base64 serialized stream ('rO0AB' / hex 'aced0005') in a path or query is the payload
+// itself; CVE-2025-8876 is command injection, hence the shell-substitution shapes.
+// HONEST GAP: CVE-2026-16812's exploit detail is not public to us, so VeloCloud contributes no
+// specific marker — a VCO hit carries only the shared traversal set below. Stated, not padded.
+const SILENT_TRAIN_EXPLOIT_MARKERS = [
+  'favicon', '.war', 'versamem',                           // Versa Director CVE-2024-39717
+  'ro0ab', 'aced0005', '$(', '%24%28', '%60',              // N-able CVE-2025-8875 / 8876
+  '....//', '%252e%252e', '..%5c',                         // evasive traversal (reaches us; CF 400s plain ../)
+  '%2e%2e', '/../',                                        // CF 400s these; kept for non-CF appliance deployments
+];
+
+function silentTrainProduct(lower) {
+  if (lower.startsWith('/versa/') || lower.startsWith('/vnms/')) return 'versa-director';
+  if (lower.startsWith('/dms/') || lower.startsWith('/dms2/')) return 'nable-ncentral';
+  return 'arista-velocloud-orchestrator';
+}
+
 function getApplianceCanary(path) {
   // ENCODED-PATH MARKER: a hit whose RAW path differs from its decoded form is the
   // WAF-bypass variant, which is worth knowing separately from a plain probe.
@@ -1193,6 +1247,11 @@ function getApplianceCanary(path) {
       const nativephp = withSlash.startsWith('/_native/') || withSlash.startsWith('/_assets/');
       return { type: 'php_scan', fake: nativephp ? 'nativephp' : 'php',
         product: nativephp ? 'nativephp-mobile' : 'php-composer',
+        ...(exploit ? { exploit_path: true } : {}), ...(encoded ? { encoded_path: true } : {}) };
+    }
+    if (SILENT_TRAIN_CANARY_PREFIXES.some(pre => withSlash.startsWith(pre))) {
+      const exploit = SILENT_TRAIN_EXPLOIT_MARKERS.some(m => path.toLowerCase().includes(m) || lower.includes(m));
+      return { type: 'edge_mgmt_scan', fake: 'silenttrain', product: silentTrainProduct(withSlash),
         ...(exploit ? { exploit_path: true } : {}), ...(encoded ? { encoded_path: true } : {}) };
     }
   }
@@ -1510,6 +1569,34 @@ function sonicwallResponse(lower) {
   return new Response(body, { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } });
 }
 
+// Minimal original markup for the three Silent Train management planes. No Versa, N-able or
+// Arista assets are copied — only the shape a fingerprinter keys on. EVERY form action below is
+// itself a trapped prefix, per the "every door a decoy advertises must open" rule: a submission
+// to it comes back here instead of falling through to the blocker. That is why VeloCloud's door
+// is /vco/login and not the real product's /portal/rest/... — /portal/ is deliberately untrapped.
+function silentTrainResponse(product, lower) {
+  if (product === 'nable-ncentral') {
+    // N-central's download/file surface answers XML to unauthenticated clients, not a login page.
+    if (lower.startsWith('/dms2/')) {
+      return new Response('<?xml version="1.0" encoding="UTF-8"?><response><status>failure</status><message>Session expired</message></response>', {
+        status: 401, headers: { 'Content-Type': 'application/xml; charset=UTF-8', 'Cache-Control': 'no-store' } });
+    }
+    const body = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>N-central Login</title></head><body><form method="post" action="/dms/logon" name="logonForm" autocomplete="off"><input type="hidden" name="customerID" value="50"><label for="userID">User ID</label><input type="text" id="userID" name="userID"><label for="password">Password</label><input type="password" id="password" name="password"><input type="submit" value="Log In"></form></body></html>`;
+    return new Response(body, { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Set-Cookie': 'JSESSIONID=; path=/; secure; httponly', 'Cache-Control': 'no-store' } });
+  }
+  if (product === 'versa-director') {
+    // Versa Director's VNMS API answers JSON 401; the UI is an SPA behind it.
+    if (lower.startsWith('/vnms/')) {
+      return new Response(JSON.stringify({ error: 'unauthorized', message: 'Authentication required' }), {
+        status: 401, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
+    }
+    const body = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Versa Director</title></head><body><form method="post" action="/versa/vnms/login" name="loginForm" autocomplete="off"><label for="username">Username</label><input type="text" id="username" name="username"><label for="password">Password</label><input type="password" id="password" name="password"><input type="submit" value="Sign In"></form></body></html>`;
+    return new Response(body, { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } });
+  }
+  const body = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>VeloCloud Orchestrator</title></head><body><form method="post" action="/vco/login" name="operatorLogin" autocomplete="off"><label for="username">Username</label><input type="text" id="username" name="username"><label for="password">Password</label><input type="password" id="password" name="password"><input type="submit" value="Log In"></form></body></html>`;
+  return new Response(body, { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } });
+}
+
 // ================================================================
 // HARVESTED-PATH OBSERVATION (2.15.0, 2026-10-18)
 // ================================================================
@@ -1659,6 +1746,7 @@ function honeypotResponse(request, cf, canary) {
   if (canary.fake === 'sharepoint') return sharepointResponse();
   if (canary.fake === 'ivanti') return ivantiResponse();
   if (canary.fake === 'cisco') return ciscoResponse(canary.product);
+  if (canary.fake === 'silenttrain') return silentTrainResponse(canary.product, new URL(request.url).pathname.toLowerCase());
   if (canary.fake === 'globalprotect' || canary.fake === 'panos') return paloResponse(canary.fake, new URL(request.url).pathname.toLowerCase());
   const fakeFn = FAKE_RESPONSES[canary.fake];
   const body = fakeFn ? fakeFn() : '';

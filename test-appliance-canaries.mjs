@@ -20,8 +20,8 @@ const slice = (from, to) => {
 };
 const code = slice('const CANARY_PATHS', 'function honeypotResponse');
 const mod = await import('data:text/javascript,' + encodeURIComponent(
-  code + '\nexport { getCanary, getApplianceCanary, applianceCanariesEnabled, netscalerResponse, fortigateResponse, ivantiResponse, ciscoResponse, paloResponse, sonicwallResponse, getSecretProbe, secretProbeResponse, secretProbeVia, safeDecode };'));
-const { getCanary, getApplianceCanary, applianceCanariesEnabled, netscalerResponse, fortigateResponse, ivantiResponse, ciscoResponse, paloResponse, sonicwallResponse, getSecretProbe, secretProbeResponse, secretProbeVia } = mod;
+  code + '\nexport { getCanary, getApplianceCanary, applianceCanariesEnabled, netscalerResponse, fortigateResponse, ivantiResponse, ciscoResponse, paloResponse, sonicwallResponse, silentTrainResponse, getSecretProbe, secretProbeResponse, secretProbeVia, safeDecode };'));
+const { getCanary, getApplianceCanary, applianceCanariesEnabled, netscalerResponse, fortigateResponse, ivantiResponse, ciscoResponse, paloResponse, sonicwallResponse, silentTrainResponse, getSecretProbe, secretProbeResponse, secretProbeVia } = mod;
 
 // The same precedence the fetch handler uses.
 const pick = (env, host, path) =>
@@ -238,6 +238,63 @@ check('via: unverified ChatGPT-User', secretProbeVia(req(), 'Mozilla/5.0; ChatGP
 check('via: Perplexity-User', secretProbeVia(req(), 'Perplexity-User/1.0', false), 'claims-ai-fetcher');
 check('via: img-tag induced', secretProbeVia(req({ 'sec-fetch-site': 'cross-site', 'sec-fetch-dest': 'image' }), 'Mozilla/5.0', false), 'browser-cross-site');
 check('via: plain scanner', secretProbeVia(req(), 'python-requests/2.31', false), 'direct');
+
+// ================================================================
+// Silent Train edge-management pack (2.23.0) — Versa Director, N-able N-central, VeloCloud
+// ================================================================
+// Added after Black Lotus Labs' 2026-10-28 Volt Typhoon report. Every CVE in that stack was
+// already KEV-listed; three of the four products had no canary. The cases that matter are the
+// ones that must NOT trap: an MSP customer running a real N-central behind this Worker, and
+// the generic prefixes we deliberately left alone.
+for (const [p, product] of [
+  ['/versa/vnms/login', 'versa-director'],
+  ['/VERSA/', 'versa-director'],
+  ['/vnms/api/config', 'versa-director'],
+  ['/dms/FileDownload', 'nable-ncentral'],
+  ['/dms2/fileupload', 'nable-ncentral'],
+  ['/vco/login', 'arista-velocloud-orchestrator'],
+  ['/velocloud/portal', 'arista-velocloud-orchestrator'],
+]) {
+  check(`silent train traps ${p}`, kind(pick({}, 'analytics.dugganusa.com', p)), 'edge_mgmt_scan');
+  check(`silent train product ${p}`, pick({}, 'analytics.dugganusa.com', p).product, product);
+}
+
+// Customer isolation: an MSP's real N-central must never get a decoy by default.
+check('customer N-central does NOT trap by default', kind(pick({}, 'ncentral.msp.example', '/dms/FileDownload')), null);
+check('customer opt-in traps N-central', kind(pick({ APPLIANCE_CANARIES: 'true' }, 'ncentral.msp.example', '/dms/FileDownload')), 'edge_mgmt_scan');
+check('"false" disables silent train on own zone', kind(pick({ APPLIANCE_CANARIES: 'false' }, 'analytics.dugganusa.com', '/versa/')), null);
+
+// Deliberately untrapped: these collide with real routes on our zones or half the web.
+for (const p of ['/portal/', '/login/', '/download/', '/api/v1/search/stats', '/dmsomething', '/vcount', '/versailles']) {
+  check(`silent train leaves ${p} alone`, kind(pick({}, 'analytics.dugganusa.com', p)), null);
+}
+
+// Existing packs keep precedence — /dataservice/ is Cisco's (vManage), not ours.
+check('/dataservice/ stays Cisco', kind(pick({}, 'analytics.dugganusa.com', '/dataservice/client/server.json')), 'cisco_scan');
+check('/dataservice/ product stays vManage', pick({}, 'analytics.dugganusa.com', '/dataservice/client/server.json').product, 'cisco-sdwan-manager');
+
+// Exploit markers: the payload shapes, not the plain probe.
+check('Versa favicon upload carries exploit marker', pick({}, 'analytics.dugganusa.com', '/versa/vnms/upload/favicon.png').exploit_path, true);
+check('Versa .war carries exploit marker', pick({}, 'analytics.dugganusa.com', '/versa/tmp/.temp.war').exploit_path, true);
+check('N-able Java serialized stream carries exploit marker', pick({}, 'analytics.dugganusa.com', '/dms/x?p=rO0ABXNy').exploit_path, true);
+check('N-able command substitution carries exploit marker', pick({}, 'analytics.dugganusa.com', '/dms/x?c=$(id)').exploit_path, true);
+check('plain Versa probe carries NO exploit marker', pick({}, 'analytics.dugganusa.com', '/versa/').exploit_path, undefined);
+check('plain VCO probe carries NO exploit marker', pick({}, 'analytics.dugganusa.com', '/vco/login').exploit_path, undefined);
+// HONEST GAP, asserted so it cannot be quietly "fixed" with an invented marker: CVE-2026-16812's
+// exploit detail is not public to us, so VeloCloud contributes no product-specific marker.
+check('VeloCloud has no invented product marker', /CVE-2026-16812/.test(src) && !/velocloud_exploit|vco_marker/.test(src), true);
+
+// Decoys: every door the decoy advertises must be a trapped path (same rule as test-decoy-actions).
+const stBody = async (product, lower) => await silentTrainResponse(product, lower).text();
+check('Versa decoy posts to a trapped path', (await stBody('versa-director', '/versa/')).includes('action="/versa/vnms/login"'), true);
+check('N-central decoy posts to a trapped path', (await stBody('nable-ncentral', '/dms/')).includes('action="/dms/logon"'), true);
+check('VCO decoy posts to a trapped path', (await stBody('arista-velocloud-orchestrator', '/vco/login')).includes('action="/vco/login"'), true);
+check('VNMS API answers 401 JSON not a login page', silentTrainResponse('versa-director', '/vnms/api/config').status, 401);
+check('dms2 answers 401 XML not a login page', silentTrainResponse('nable-ncentral', '/dms2/fileupload').status, 401);
+check('Versa UI decoy answers 200', silentTrainResponse('versa-director', '/versa/').status, 200);
+// No vendor assets are copied — the decoy is our own minimal markup.
+check('Versa decoy copies no vendor asset URLs', !/versa-networks\.com|\.versa\.com/.test(await stBody('versa-director', '/versa/')), true);
+
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

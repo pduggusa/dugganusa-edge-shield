@@ -1099,6 +1099,64 @@ const PHP_EXPLOIT_MARKERS = [
 ];
 
 // ================================================================
+// PHP2SHELL BOUNDARY CANARY (2026-10-29, 2.24.0) — a header, not a path
+// ================================================================
+// Our own 2026-10-28 post ("Two of the 23 PHP2Shell Attacker IPs...") named the gap in the
+// pack above, out loud, in public: "PHP2Shell is not a path. The exploit is an ordinary POST
+// to an ordinary endpoint — the site root, an index file, an upload handler — carrying a
+// crafted multipart boundary... Our canaries trap paths. A path trap cannot see an attack
+// whose distinguishing feature is a header." PHP_CANARY_PREFIXES/EXACT above only ever
+// trap NativePHP/Composer/Symfony recon paths; CVE-2026-109618/109619 itself hits paths we
+// cannot enumerate (every zone's own `/`, `/index.php`, whatever upload handler it runs).
+//
+// What IS enumerable, per Zscaler's own research on the exploit tooling (ATP signature
+// PHP.Exploit.CVE-2026-109618_19; https://www.zscaler.com/blogs/security-research/
+// cve-2026-109618-and-cve-2026-109619-php-vulnerable-unauthenticated-rce): four tool
+// families stamp a literal, non-random multipart boundary rather than the random one a
+// browser or a normal client library generates. That string sits in the Content-Type
+// REQUEST HEADER (`multipart/form-data; boundary=...`) — readable with zero body bytes
+// pulled off the wire, so this runs on every request regardless of path or
+// CANARY_BODY_SAMPLE, the same way the scanner-UA and IOC checks already do.
+//
+// NOT a guess: ShellFlow's own proof-of-concept literally serializes `sf618_` session IDs
+// and a `shellflow_poc` upload-progress value, Neo Scanner's own object-injection file part
+// is `filename="x|O:8:\"stdClass\":0:{}"`. These are kit authors' own build/debug artifacts,
+// left in because none of the four kits has been updated since Zscaler's writeup. A false
+// positive requires an unrelated client to generate one of these exact strings as its own
+// multipart boundary, which no browser, curl, or framework does — boundaries are random by
+// construction (RFC 2046 §5.1.1 only requires uniqueness, so nothing legitimate needs to
+// reuse someone else's fixed string).
+//
+// Four signatures, not one: our own post only named "shellflow" and "a scanner that stamps
+// its own build name" because that is all the 23-IP table's own text gave without reading
+// Zscaler's full writeup. Reading it: ShellFlow (`shellflow-php2shell`), an operator Zscaler
+// calls "Active RCE Operator" (`--VERIFY`), Nuclei's CVE templates (`------Nuclei`), and Neo
+// Scanner, which ships two build-name variants (`--NeoMM2026`, `--NeoMM2026b` — the shorter
+// string catches both). Fastly's independent writeup corroborates one of the four
+// (ShellFlow's `B7kQpoc618`/`php2shell-109618` tooling) and separately warns off two
+// LOOK-ALIKES we deliberately do NOT match: React2Shell (CVE-2025-55182, a different bug,
+// chunked no-Content-Length requests) and a WordPress campaign called wp2shell whose
+// boundary starts `----wp2shell` — matching either would mislabel unrelated traffic as this
+// CVE pair.
+const PHP2SHELL_BOUNDARY_MARKERS = [
+  ['shellflow-php2shell', 'shellflow'],
+  ['--VERIFY', 'active-rce-operator'],
+  ['------Nuclei', 'nuclei-template'],
+  ['--NeoMM2026', 'neo-scanner'],
+];
+
+function getPhp2ShellBoundaryCanary(request) {
+  const ctype = request.headers.get('content-type') || '';
+  if (!ctype.toLowerCase().startsWith('multipart/')) return null;
+  for (const [marker, tool] of PHP2SHELL_BOUNDARY_MARKERS) {
+    if (ctype.includes(marker)) {
+      return { type: 'php2shell_boundary', fake: 'shell', product: 'php-cve-2026-109618-109619', tool };
+    }
+  }
+  return null;
+}
+
+// ================================================================
 // APP-CONSOLE CANARIES — Tomcat / JBoss / Zabbix / Nagios / Yii (2026-10-28)
 // ================================================================
 // Measured from our OWN Cloudflare firewall events, 24h to 2026-10-28T15:22Z:
@@ -1795,10 +1853,15 @@ async function indexHoneypotHit(env, request, cf, canary, tell = {}) {
       `Method: ${request.method}. City: ${cf.city || '?'}, ${cf.region || '?'}.`,
     timestamp: now,
     name: `Honeypot: ${canary.type}`,
-    tags: ['honeypot', 'edge-shield', 'scanner', canary.type, 'auto-indexed', ...(canary.product ? [canary.product] : [])],
+    tags: ['honeypot', 'edge-shield', 'scanner', canary.type, 'auto-indexed',
+      ...(canary.product ? [canary.product] : []), ...(canary.tool ? [canary.tool] : [])],
     references: [request.url],
     honeypot_meta: {
       ...(canary.product ? { product: canary.product } : {}),
+      // Which of the four PHP2Shell boundary signatures matched (shellflow, nuclei-template,
+      // neo-scanner, active-rce-operator) — set only by getPhp2ShellBoundaryCanary. Kept
+      // separate from `product` because this is the TOOL/kit, not the vulnerable product.
+      ...(canary.tool ? { tool: canary.tool } : {}),
       ...(canary.encoded_path ? { encoded_path: true } : {}),
       // exploit_path was computed for Ivanti/Cisco/Palo/SharePoint since 2.10.0 but never
       // persisted here, so every exploit marker was dropped before indexing. Fixed 2.12.0.
@@ -2121,8 +2184,14 @@ async function handleFetch(request, env, ctx, obs) {
     // is the right default everywhere else, which is why this stands aside only on a path
     // we deliberately trapped. Nothing new is exposed: these paths already answer a decoy
     // to every unverified visitor.
+    // getPhp2ShellBoundaryCanary runs BEFORE the appliance-canary gate and regardless of
+    // path: it is a Content-Type header check, not a path list, which is the entire point
+    // (see the comment above its definition). It still respects honeypotsEnabled/verifiedCrawler
+    // like every other canary here — a verified crawler cannot carry attacker tooling anyway,
+    // but the exemption stays consistent rather than special-cased per canary type.
     const canary = (honeypotsEnabled && !verifiedCrawler)
-      ? (getCanary(path) || (applianceCanariesEnabled(env, hostname) ? getApplianceCanary(path) : null))
+      ? (getCanary(path) || getPhp2ShellBoundaryCanary(request) ||
+         (applianceCanariesEnabled(env, hostname) ? getApplianceCanary(path) : null))
       : null;
 
     // ============================================================

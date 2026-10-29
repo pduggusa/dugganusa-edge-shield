@@ -268,7 +268,7 @@ deception rather than blocking, so they keep their own switch.
 - **Tests extract the shipped code** rather than reimplementing it:
   `node test-config-observe.mjs`, `node test-appliance-canaries.mjs`,
   `node test-crawler-verify.mjs` (the last one uses real DNS), `node test-origin-edge.mjs`, `node test-path-origins.mjs`,
-  `node test-harvested-observe.mjs`, `node test-decoy-actions.mjs`.
+  `node test-harvested-observe.mjs`, `node test-decoy-actions.mjs`, `node test-php2shell-boundary.mjs`.
 
 ## Support
 

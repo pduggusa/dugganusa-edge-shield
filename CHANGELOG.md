@@ -2,6 +2,34 @@
 
 All notable changes to DugganUSA Edge Shield are documented here.
 
+## 2.24.0 — 2026-10-29
+
+- **PHP2Shell boundary canary, closing a gap we named in public ourselves.** Our own 2026-10-28
+  post ("Two of the 23 PHP2Shell Attacker IPs...") said it out loud: "PHP2Shell is not a path.
+  The exploit is an ordinary POST to an ordinary endpoint — the site root, an index file, an
+  upload handler — carrying a crafted multipart boundary... Our canaries trap paths. A path
+  trap cannot see an attack whose distinguishing feature is a header." The PHP/NativePHP pack
+  (2.20.0) only ever trapped NativePHP/Composer/Symfony recon paths — never CVE-2026-109618/109619
+  itself, because that bug hits paths no path list can enumerate.
+- **New `getPhp2ShellBoundaryCanary()`: a Content-Type header check, not a path list.** Four
+  tool families, per Zscaler's own CVE-2026-109618/109619 writeup (ATP signature
+  `PHP.Exploit.CVE-2026-109618_19`), stamp a literal, non-random multipart boundary instead of
+  generating a random one: ShellFlow (`shellflow-php2shell`), "Active RCE Operator" (`--VERIFY`),
+  Nuclei's CVE templates (`------Nuclei`), and Neo Scanner, which ships two build-name variants
+  (`--NeoMM2026`/`--NeoMM2026b`, both caught by the shorter string). Reads one header, zero body
+  bytes, on every request regardless of path — runs for every zone already covered by an
+  existing catch-all route (`www.dugganusa.com/*`, `analytics.dugganusa.com/*`, etc.); unlike the
+  2.20.0 pack, **no new `wrangler.toml` route was needed**, because this is not path-shaped.
+- Deliberately does NOT match two Fastly-reported look-alikes that are a different bug or a
+  different campaign: React2Shell (CVE-2025-55182, chunked no-Content-Length requests) and
+  wp2shell (a WordPress campaign whose boundary starts `----wp2shell`). Matching either would
+  mislabel unrelated traffic as this CVE pair.
+- A match reuses the existing `shell` decoy response (no new fake-response code for a new
+  family) and is indexed with the matched tool name in a new `honeypot_meta.tool` field,
+  separate from `product` — `tool` is the kit, `product` is the vulnerable software.
+- `test-php2shell-boundary.mjs`: 8 tests, including the two look-alikes and an ordinary
+  `WebKitFormBoundary` negative. 10 suites pass (533 tests).
+
 ## 2.22.0 — 2026-10-26
 
 - **The tarpit now tells us what they sent, not just which door they tried.** A 30-day census of 25,915 canary hits found the instrument answering the wrong question: **4,973 hits (19.2%) were POST and not one request body had ever been captured**, 1,920 carried a query string the exploit markers never saw (`getApplianceCanary()` takes `pathname` only), and **`exploit_path` had fired exactly once in 25,915** — while the URLs we already stored contained 332 path traversals, 21 double-encoded traversals and 19 phpinfo probes. The marker was defined narrowly inside each canary branch, so a traversal into a WordPress canary counted for nothing.

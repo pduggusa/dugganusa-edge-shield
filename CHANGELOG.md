@@ -27,20 +27,24 @@ All notable changes to DugganUSA Edge Shield are documented here.
 - A match reuses the existing `shell` decoy response (no new fake-response code for a new
   family) and is indexed with the matched tool name in a new `honeypot_meta.tool` field,
   separate from `product` — `tool` is the kit, `product` is the vulnerable software.
-- **Same-day fix, caught by automated security review before anyone pulled the feed:** a
-  boundary-header match ALONE was being indexed as a confidence-95 IOC — but the four
-  boundary strings are now public (our own post names one, Zscaler's writeup names all four),
-  so anyone who read either, or a browser `fetch()` with the right Content-Type, could trigger
-  it with zero exploit knowledge. That would have let anyone poison our own feed with fake
-  PHP2Shell hits under our source. Fixed: indexing now requires body corroboration (one of
-  `upload-progress`, `php-object-injection`, `unserialize` — markers real exploit tooling
-  actually sends) in addition to the header. An uncorroborated header still gets the decoy
-  (cheap, no downside) and is still logged for counting, never indexed — the same posture
-  secret-file probes already use for a signal that proves nothing about who sent it. Also
-  tightened the header check itself to parse the `boundary=` parameter rather than substring-
-  matching the whole Content-Type header.
-- `test-php2shell-boundary.mjs`: 10 tests, including the two look-alikes, an ordinary
-  `WebKitFormBoundary` negative, and the corroboration-gate check. 10 suites pass (535 tests).
+- **Same-day fix, two rounds, caught by automated security review before anyone pulled the
+  feed.** Round 1: a boundary-header match ALONE was being indexed as a confidence-95 IOC —
+  but the four boundary strings are public (our own post names one, Zscaler's writeup names
+  all four), so anyone who read either, or a browser `fetch()` with the right Content-Type,
+  could trigger it with zero exploit knowledge. First attempt required a "corroborating" body
+  marker (`upload-progress`, `php-object-injection`, `unserialize`) before indexing. Round 2
+  correctly threw that out too: those are just three words a copy-paste script can paste into
+  a body alongside the boundary — a threshold built from our own published vocabulary always
+  loses to someone who read it. **Final fix: a `php2shell_boundary` canary hit is never
+  indexed as an attributed IOC, full stop** — the exact posture secret-file probes already use
+  for a signal that proves nothing about who sent it. The decoy still fires (cheap, no
+  downside), and every hit is still logged for counting, which is the actual work item: the
+  next `ttp-check` for CVE-2026-109618 now sees a canary that can fire at all. Also tightened
+  the header check to parse the `boundary=` parameter rather than substring-matching the whole
+  Content-Type header.
+- `test-php2shell-boundary.mjs`: 9 tests, including the two look-alikes, an ordinary
+  `WebKitFormBoundary` negative, and a static check that indexHoneypotHit is unreachable for
+  this canary type. 10 suites pass (534 tests).
 
 ## 2.22.0 — 2026-10-26
 

@@ -159,6 +159,24 @@ routes = [
   { pattern = "security.dugganusa.com/_assets/*", zone_name = "dugganusa.com" },
   { pattern = "security.dugganusa.com/vendor/composer/*", zone_name = "dugganusa.com" },
   { pattern = "security.dugganusa.com/_profiler/*", zone_name = "dugganusa.com" },
+
+  # AI-agent / MCP client config canaries (2.25.0, 2026-10-30). Route with the worker, or the
+  # canary never fires (the ship-the-route-with-the-worker trap above). All seven path shapes
+  # returned 404 from the ORIGIN (not a WAF 403) on both zones before routing, from a clean
+  # client, so nothing of ours serves them and the WAF did not intercept them. /.well-known/mcp.json
+  # returns 200 on analytics (our MCP discovery) and is deliberately NOT routed here.
+  { pattern = "analytics.dugganusa.com/.claude*", zone_name = "dugganusa.com" },
+  { pattern = "analytics.dugganusa.com/.cursor*", zone_name = "dugganusa.com" },
+  { pattern = "analytics.dugganusa.com/.vscode/mcp.json", zone_name = "dugganusa.com" },
+  { pattern = "analytics.dugganusa.com/.mcp.json", zone_name = "dugganusa.com" },
+  { pattern = "analytics.dugganusa.com/mcp.json", zone_name = "dugganusa.com" },
+  { pattern = "analytics.dugganusa.com/claude_desktop_config.json", zone_name = "dugganusa.com" },
+  { pattern = "security.dugganusa.com/.claude*", zone_name = "dugganusa.com" },
+  { pattern = "security.dugganusa.com/.cursor*", zone_name = "dugganusa.com" },
+  { pattern = "security.dugganusa.com/.vscode/mcp.json", zone_name = "dugganusa.com" },
+  { pattern = "security.dugganusa.com/.mcp.json", zone_name = "dugganusa.com" },
+  { pattern = "security.dugganusa.com/mcp.json", zone_name = "dugganusa.com" },
+  { pattern = "security.dugganusa.com/claude_desktop_config.json", zone_name = "dugganusa.com" },
 ]
 
 [observability]

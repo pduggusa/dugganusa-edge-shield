@@ -2,6 +2,21 @@
 
 All notable changes to DugganUSA Edge Shield are documented here.
 
+## 2.25.1 — 2026-10-30
+
+- **Two paths 2.25.0 missed, found by reading the same sweep more carefully.** The 18 blocks
+  asked for 10 distinct paths; 2.25.0 covered 8. The other two were `/.junie/mcp.json`
+  (JetBrains Junie) and `/.amazonq/mcp.json` (Amazon Q Developer). The sweep is a wordlist of AI
+  coding agents' MCP configs: Claude Code, Claude Desktop, Cursor, VS Code, Junie, Amazon Q.
+- **`/.junie/` and `/.amazonq/` added to `agent_config_probe`** (prefixes), with 4 routes on
+  `analytics` and `security`. Both shapes returned 404 from the origin on both zones before routing.
+- **Only observed paths are added.** `.windsurf`, `.gemini`, `.roo`, `.cline`, `.continue` are
+  plausible siblings but unmeasured here, so they are not trapped, and the test asserts that
+  `/.windsurf/mcp.json` and `/.gemini/settings.json` do NOT trap.
+- **Known limit, measured:** 17 of the 18 blocks were `firewallCustom` and 1 `firewallManaged`,
+  rules that run BEFORE the Worker. A scanner already on the blocklist is stopped by the WAF and
+  never reaches the decoy, so the canary should fire mainly for scanners we have not listed yet.
+
 ## 2.25.0 — 2026-10-30
 
 - **AI-agent / MCP client config canaries, from our own telemetry.** `ttp-check` over the window

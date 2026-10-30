@@ -716,6 +716,12 @@ const CANARY_PATHS = {
   // /api/v1/mcp. The decoy (FAKE_RESPONSES.agent_config) is inert on purpose.
   '/.claude/':                   { type: 'agent_config_probe', fake: 'agent_config' },
   '/.cursor/':                   { type: 'agent_config_probe', fake: 'agent_config' },
+  // 2.25.1: the sweep also asked for JetBrains Junie and Amazon Q Developer configs
+  // (/.junie/mcp.json and /.amazonq/mcp.json, one block each, same ramp), which 2.25.0 did
+  // not cover: 8 of the 10 observed paths. Only observed paths are added; .windsurf, .gemini,
+  // .roo, .cline and .continue are plausible siblings but unmeasured here, so they are not trapped.
+  '/.junie/':                    { type: 'agent_config_probe', fake: 'agent_config' },
+  '/.amazonq/':                  { type: 'agent_config_probe', fake: 'agent_config' },
   '/.vscode/mcp.json':           { type: 'agent_config_probe', fake: 'agent_config' },
   '/.mcp.json':                  { type: 'agent_config_probe', fake: 'agent_config' },
   '/mcp.json':                   { type: 'agent_config_probe', fake: 'agent_config' },

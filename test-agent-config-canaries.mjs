@@ -34,7 +34,8 @@ const kind = (p) => { const c = getCanary(p); return c ? c.type : null; };
 for (const p of ['/.claude/settings.json', '/.claude/settings.local.json', '/.claude/', '/.claude',
                  '/.cursor/mcp.json', '/.cursor/rules/x.mdc', '/.mcp.json', '/mcp.json',
                  '/claude_desktop_config.json', '/.vscode/mcp.json',
-                 '/%2eclaude/settings.json', '/.cursor%2fmcp.json']) {
+                 '/%2eclaude/settings.json', '/.cursor%2fmcp.json',
+                 '/.junie/mcp.json', '/.junie/', '/.junie', '/.amazonq/mcp.json', '/.amazonq/', '/.amazonq']) {
   check(`traps ${p}`, kind(p), 'agent_config_probe');
 }
 check('trapped paths use the inert decoy', getCanary('/.mcp.json').fake, 'agent_config');
@@ -43,7 +44,8 @@ check('trapped paths use the inert decoy', getCanary('/.mcp.json').fake, 'agent_
 for (const p of ['/.well-known/mcp.json', '/.well-known/mcp', '/.well-known/mcp/server-card.json',
                  '/mcp', '/api/v1/mcp', '/api/v1/mcp/tools', '/llms.txt', '/jeevesus', '/membrane',
                  '/claude', '/claude.json', '/cursor/', '/docs/mcp.json', '/blog/mcp.json',
-                 '/.vscode/settings.json', '/.vscode/launch.json']) {
+                 '/.vscode/settings.json', '/.vscode/launch.json',
+                 '/junie/mcp.json', '/amazonq/', '/docs/.junie/mcp.json', '/.windsurf/mcp.json', '/.gemini/settings.json']) {
   check(`does NOT trap ${p}`, kind(p), null);
 }
 

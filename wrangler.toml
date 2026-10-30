@@ -177,6 +177,12 @@ routes = [
   { pattern = "security.dugganusa.com/.mcp.json", zone_name = "dugganusa.com" },
   { pattern = "security.dugganusa.com/mcp.json", zone_name = "dugganusa.com" },
   { pattern = "security.dugganusa.com/claude_desktop_config.json", zone_name = "dugganusa.com" },
+  # 2.25.1: JetBrains Junie and Amazon Q Developer config paths, seen in the same sweep. All four
+  # shapes returned 404 from the ORIGIN on both zones before routing (2026-10-30).
+  { pattern = "analytics.dugganusa.com/.junie*", zone_name = "dugganusa.com" },
+  { pattern = "analytics.dugganusa.com/.amazonq*", zone_name = "dugganusa.com" },
+  { pattern = "security.dugganusa.com/.junie*", zone_name = "dugganusa.com" },
+  { pattern = "security.dugganusa.com/.amazonq*", zone_name = "dugganusa.com" },
 ]
 
 [observability]

@@ -53,6 +53,12 @@ const DEFAULT_CONFIG = {
   scanner418: true,            // SCANNER_418
   rlAnon: 100,                 // RL_ANON: req/min per anonymous IP (0 disables)
   rlAuth: 500,                 // RL_AUTH: req/min per IP presenting an API key (0 disables)
+  // SWEEP detector (2.26.0): path DIVERSITY, not volume. Independent of SHIELD_MODE and
+  // observe-by-default, because its false-positive rate on real visitors is unmeasured.
+  sweepMode: 'observe',        // SWEEP_MODE: "observe" logs, "block" answers 403, "off" disables
+  sweepDistinct: 20,           // SWEEP_DISTINCT: distinct paths inside the window that flag an IP
+  sweepSecretShare: 60,        // SWEEP_SECRET_SHARE: percent of those paths that must be secret-shaped
+  sweepWindowS: 60,            // SWEEP_WINDOW_S: sliding window, seconds
   feedHitReporting: true,      // FEED_HIT_REPORTING: indicator-only liveness report on a match
   // SCHEMA_INJECT_HOSTS: hosts that get DugganUSA's own Organization LD-JSON. It is OUR
   // record, so this is only ever meaningful on our hosts. Customers set it to "".
@@ -99,9 +105,20 @@ function loadConfig(env) {
     else warnings.push(`SHIELD_MODE="${e.SHIELD_MODE}" is not "block" or "observe", using default ${d.mode}`);
   }
 
+  let sweepMode = d.sweepMode;
+  if (e.SWEEP_MODE !== undefined && e.SWEEP_MODE !== null && e.SWEEP_MODE !== '') {
+    const m = String(e.SWEEP_MODE).trim().toLowerCase();
+    if (m === 'observe' || m === 'block' || m === 'off') sweepMode = m;
+    else warnings.push(`SWEEP_MODE="${e.SWEEP_MODE}" is not "observe", "block" or "off", using default ${d.sweepMode}`);
+  }
+
   return {
     mode,
     observe: mode === 'observe',
+    sweepMode,
+    sweepDistinct: parseIntRange(e.SWEEP_DISTINCT, d.sweepDistinct, 5, 1000, 'SWEEP_DISTINCT', warnings),
+    sweepSecretShare: parseIntRange(e.SWEEP_SECRET_SHARE, d.sweepSecretShare, 0, 100, 'SWEEP_SECRET_SHARE', warnings),
+    sweepWindowS: parseIntRange(e.SWEEP_WINDOW_S, d.sweepWindowS, 10, 600, 'SWEEP_WINDOW_S', warnings),
     iocBlocking: parseBool(e.IOC_BLOCKING, d.iocBlocking, 'IOC_BLOCKING', warnings),
     iocMinConfidence: parseIntRange(e.IOC_MIN_CONFIDENCE, d.iocMinConfidence, 0, 100, 'IOC_MIN_CONFIDENCE', warnings),
     iocFeedDays: parseIntRange(e.IOC_FEED_DAYS, d.iocFeedDays, 1, 90, 'IOC_FEED_DAYS', warnings),
@@ -2042,6 +2059,67 @@ function rateLimitedResponse(ip, authed, limit) {
 }
 
 // ================================================================
+// SWEEP DETECTOR (2.26.0): path diversity, not volume
+// ================================================================
+// WHY (measured, four weeks of our own edge, 2026-10-02..30): 70% of blocked and trapped hits
+// arrived in bursts, and 71% of the week's IPs had never been seen. An IP list is always one
+// request behind a rotating pool, and a rate limit sees only volume. What every sweep shares is
+// BREADTH: dozens of DISTINCT secret-shaped paths in a minute (.env variants, dotfiles, wp-config
+// backups, AI-agent configs). Replayed over those weeks, >=20 distinct paths in 60s with >=60% of
+// them secret-shaped flags 182 of 3,552 IPs a median of 23 requests in; a plain 60-per-minute
+// burst rule flags 88. Breadth also catches the slow sweeps a volume rule never trips.
+//
+// IT STARTS AS OBSERVE, and that is the point of it. The replay set was traffic we had ALREADY
+// blocked or trapped, so it cannot say what this does to a real visitor. Observe mode is how that
+// gets measured: every flag is a structured log line with the path sample, the user agent, the ASN
+// and whether the path was a canary. Nothing here creates an IOC. A heuristic does not get to
+// write the blocklist until its false-positive rate is known.
+//
+// What it deliberately does NOT do: it never counts or blocks verified crawlers or requests that
+// present an API key (an API client legitimately calls many distinct paths, and none of them are
+// secret-shaped anyway); it stands aside for a canary path exactly like LAYER 1 and LAYER 2 do (a
+// trapped path is answered by the decoy, see 2.21.0); and /.well-known/ is NOT secret-shaped,
+// because that is where MCP, security.txt and OpenID discovery legitimately live.
+const SWEEP_MAX_TRACKED_PATHS = 300;
+const sweepBuckets = new Map(); // ip -> { paths: Map<path, lastSeenMs>, flaggedAt }
+const SECRET_PATH_RE = /\/\.(?!well-known\/)[a-z0-9_-]+|\.env|\.bak|\.old|\.orig|\.save|\.swp|~$|\/config\.|wp-config|\.sql$|\.zip$|\.tar|\.gz$|id_rsa|credentials|secrets?\b|docker-compose|\.ya?ml$|\.json$|\.xml$|\.ini$|\.conf$|\.php$|actuator|phpmyadmin|\/cgi-bin\//;
+// /.well-known/ is excluded as a whole, not just from the dotfile alternative: its files end in
+// .json and .xml (mcp.json, openid-configuration.json), which the extension alternatives would
+// otherwise match. Caught by test-sweep-detector.mjs before it shipped.
+function isSecretShapedPath(p) { const s = String(p).toLowerCase(); return !s.startsWith('/.well-known/') && SECRET_PATH_RE.test(s); }
+// Returns null, or { distinct, secret, share, first, sample, windowS }. `first` is true only on the
+// request that first flags the IP in a window, so a sustained sweep logs once per window, not per hit.
+function sweepSignal(ip, path, cfg, now = Date.now()) {
+  if (!ip || !cfg || cfg.sweepMode === 'off') return null;
+  const windowMs = cfg.sweepWindowS * 1000;
+  let b = sweepBuckets.get(ip);
+  if (!b) { b = { paths: new Map(), flaggedAt: 0 }; sweepBuckets.set(ip, b); }
+  const p = String(path || '/').toLowerCase().split('?')[0].slice(0, 200);
+  b.paths.delete(p); b.paths.set(p, now); // re-insert so Map order is oldest-first
+  for (const [k, t] of b.paths) { if (now - t >= windowMs) b.paths.delete(k); else break; }
+  while (b.paths.size > SWEEP_MAX_TRACKED_PATHS) b.paths.delete(b.paths.keys().next().value); // bound memory
+  if (sweepBuckets.size > 20000) { // evict IPs with no live paths
+    for (const [k, v] of sweepBuckets) { const last = [...v.paths.values()].pop(); if (!last || now - last >= windowMs) sweepBuckets.delete(k); }
+  }
+  const distinct = b.paths.size;
+  if (distinct < cfg.sweepDistinct) return null;
+  let secret = 0;
+  for (const k of b.paths.keys()) if (isSecretShapedPath(k)) secret++;
+  const share = Math.round(100 * secret / distinct);
+  if (share < cfg.sweepSecretShare) return null;
+  const first = !b.flaggedAt || now - b.flaggedAt >= windowMs;
+  if (first) b.flaggedAt = now;
+  return { distinct, secret, share, first, sample: [...b.paths.keys()].slice(-8), windowS: cfg.sweepWindowS };
+}
+function sweepResponse(ip) {
+  return new Response(JSON.stringify({
+    error: 'sweep_detected',
+    message: 'Too many distinct configuration-style paths requested in a short window. If you are a person, slow down.',
+    ip,
+  }), { status: 403, headers: { 'content-type': 'application/json', 'x-dugganusa-shield': 'sweep' } });
+}
+
+// ================================================================
 // MAIN HANDLER
 // ================================================================
 
@@ -2169,6 +2247,31 @@ async function handleFetch(request, env, ctx, obs) {
     const verifiedCrawler = await isVerifiedCrawler(request, cf);
 
     // ============================================================
+    // LAYER 0.2: SWEEP detector (2.26.0) — RECORD and LOG only; it never returns here
+    // ============================================================
+    // Breadth of secret-shaped paths, not volume. It sits ahead of every enforcement layer on
+    // purpose, like LAYER 0.5: a sweep that a later layer 418s, 403s or answers with a decoy still
+    // ARRIVED, and counting only the requests that reach origin would miss exactly the operators
+    // we already block. Counts EVERY request that is not a verified crawler or key-bearing.
+    // OBSERVE by default: it logs and tags the response, never writes an IOC. Enforcement
+    // (SWEEP_MODE="block") is a separate step before LAYER 3, because it must stand aside for a
+    // canary path and the canary is not resolved yet. See the detector's header for the
+    // measurement behind the thresholds and what it deliberately skips.
+    const sweepAuthed = !!(request.headers.get('authorization') || reqUrl.searchParams.get('api_key'));
+    const sweep = (!verifiedCrawler && !sweepAuthed) ? sweepSignal(ip, reqUrl.pathname, cfg) : null;
+    if (sweep) {
+      observed.push('sweep');
+      if (sweep.first) {
+        console.log(JSON.stringify({
+          shield: (cfg.sweepMode === 'block' && !cfg.observe) ? 'enforce' : 'observe', would: 'sweep',
+          ip, host: hostname, path: reqUrl.pathname,
+          distinct: sweep.distinct, secret_share: sweep.share, window_s: sweep.windowS, sample: sweep.sample,
+          asn: cf.asn || null, country: cf.country || null, ua: ua.slice(0, 80), ray: rayId || null,
+        }));
+      }
+    }
+
+    // ============================================================
     // LAYER 0.5: Harvested-path OBSERVATION — never blocks, never answers, never an IOC
     // ============================================================
     // Before scanner/IOC enforcement on purpose: a probe that a later layer 418s or 403s still
@@ -2254,6 +2357,13 @@ async function handleFetch(request, env, ctx, obs) {
       observed.push('ioc');
       logObserved('ioc-403', ip, hostname, reqUrl.pathname, rayId);
     }
+
+    // ============================================================
+    // LAYER 2.5: SWEEP enforcement — SWEEP_MODE="block" only; the default is observe
+    // ============================================================
+    // Stands aside for a canary path exactly like LAYER 1 and LAYER 2 do (2.21.0): a trapped
+    // path is answered by the decoy, and the secret-file probe handler keeps its precedence.
+    if (sweep && cfg.sweepMode === 'block' && !cfg.observe && !canary) return sweepResponse(ip);
 
     // ============================================================
     // LAYER 3: Honeypot canaries — trap recon, harvest fingerprints

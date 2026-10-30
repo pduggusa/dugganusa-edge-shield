@@ -2,6 +2,35 @@
 
 All notable changes to DugganUSA Edge Shield are documented here.
 
+## 2.26.0 — 2026-10-30
+
+- **Sweep detector: path diversity, not volume.** We replayed four weeks of our own edge traffic
+  (39,036 blocks, 23,975 canary records, 1,305 origin captures since 2026-10-02). 70% of hits
+  arrived in bursts, and 71% of the week's IPs had never been seen, so an IP list is one request
+  behind a rotating pool and a rate limit sees only volume. What every sweep shares is breadth:
+  dozens of distinct secret-shaped paths in a minute. Replayed over those weeks, >=20 distinct
+  paths in 60s with >=60% secret-shaped flags 182 of 3,552 IPs a median of 23 requests in; a plain
+  60-per-minute burst rule flags 88.
+- **Observe by default, on purpose.** The replay set was traffic we had already blocked or
+  trapped, so it cannot say what the rule does to a real visitor. `SWEEP_MODE` is independent of
+  `SHIELD_MODE` and defaults to `observe`: every flag is one structured Workers Logs line (path
+  sample, user agent, ASN, country, distinct count, secret share) and the response is tagged
+  `X-DugganUSA-Observed: sweep`. It never writes an IOC: a heuristic does not get to write the
+  blocklist until its false-positive rate is known. `block` answers 403; `off` disables it.
+- **Vars:** `SWEEP_MODE`, `SWEEP_DISTINCT` (default 20), `SWEEP_SECRET_SHARE` (60, percent),
+  `SWEEP_WINDOW_S` (60). Bad values fall back to the default with a `config:` warning.
+- **What it does not count:** verified crawlers, requests carrying an API key, and `/.well-known/`
+  (MCP, security.txt and OpenID discovery live there). A test caught `/.well-known/mcp.json` being
+  classified secret-shaped through the `.json` extension before this shipped.
+- **Placement:** recording and logging run at LAYER 0.2, ahead of every enforcement layer, so a
+  sweep that LAYER 1 or LAYER 2 would answer is still counted. Block-mode enforcement is a
+  separate LAYER 2.5 that stands aside for canary paths, as LAYER 1 and LAYER 2 do (2.21.0).
+- **Limits:** the Worker sees only the paths its routes send it, so the detector covers hosts with
+  catch-all routes and only the routed paths elsewhere. Tracking is per isolate and bounded (300
+  paths per IP, 20,000 IPs), like the rate limiter.
+- `test-sweep-detector.mjs`: 47 checks over the shipped code and the handler hook. Proven to fail
+  on a mutated detector. The other eleven suites are unchanged and pass.
+
 ## 2.25.1 — 2026-10-30
 
 - **Two paths 2.25.0 missed, found by reading the same sweep more carefully.** The 18 blocks

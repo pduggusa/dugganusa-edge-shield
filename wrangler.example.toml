@@ -85,6 +85,16 @@ SCANNER_418 = "true"
 RL_ANON = "100"
 RL_AUTH = "500"
 
+# Sweep detector: flags an IP that asks for many DISTINCT secret-shaped paths (.env variants,
+# dotfiles, wp-config backups, AI-agent configs) inside a short window, whatever its volume.
+# "observe" logs it to Workers Logs and tags the response, and blocks nothing. "block" answers
+# 403 (it still stands aside for honeypot canary paths). "off" disables it. Verified crawlers and
+# requests carrying an API key are never counted. [observe] / [20 paths] / [60 %] / [60 seconds]
+SWEEP_MODE = "observe"
+SWEEP_DISTINCT = "20"
+SWEEP_SECRET_SHARE = "60"
+SWEEP_WINDOW_S = "60"
+
 # Decoy paths (/.env, /wp-login.php, /graphql, /webmail/...) that answer scanners
 # with fake content. PRIVACY: a hit sends the visitor's IP, User-Agent, geo and the
 # request URL to DugganUSA. Disable if any decoy path is a real route on your site,

@@ -203,6 +203,13 @@ IOC_REFRESH_MINUTES = "60"
 SCANNER_418 = "true"
 RL_ANON = "100"
 RL_AUTH = "500"
+# Sweep detector (2.26.0): breadth of secret-shaped paths, not volume. OBSERVE: it logs and tags,
+# never blocks and never writes an IOC. Flip to "block" only after observe has measured the
+# false-positive rate on real visitors. Thresholds shown are the defaults.
+SWEEP_MODE = "observe"
+SWEEP_DISTINCT = "20"
+SWEEP_SECRET_SHARE = "60"
+SWEEP_WINDOW_S = "60"
 HONEYPOTS_ENABLED = "true"
 FEED_HIT_REPORTING = "true"
 SCHEMA_INJECT_HOSTS = "www.dugganusa.com,dugganusa.com,aipmsec.com"

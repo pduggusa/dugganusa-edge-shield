@@ -2,6 +2,31 @@
 
 All notable changes to DugganUSA Edge Shield are documented here.
 
+## 2.25.0 — 2026-10-30
+
+- **AI-agent / MCP client config canaries, from our own telemetry.** `ttp-check` over the window
+  since 2026-10-01 found 18 edge blocks from 4 IPs hunting `/.claude/settings.json`,
+  `/.claude/settings.local.json`, `/.cursor/mcp.json`, `/.mcp.json`, `/mcp.json` and
+  `/claude_desktop_config.json`, ramping (1 on 10-14, 2 on 10-18, 6 on 10-23, 9 on 10-30 alone)
+  with ZERO canary hits and zero origin captures. All four are known broad scanners already in
+  the published blocklist; the new behavior is the paths, not the actors. The edge was
+  blocking them but could only see them as blocks. A block records the path; a trapped path
+  records the visit with a fingerprint.
+- **New family `agent_config_probe`** on `/.claude/`, `/.cursor/` (prefixes), `/.vscode/mcp.json`,
+  `/.mcp.json`, `/mcp.json` and `/claude_desktop_config.json`. Decoy is `agent_config`: a valid,
+  almost empty MCP config pointing at a reserved `.invalid` host, with no `command`, `args`,
+  `env`, `headers` or credential. It is inert on purpose: a decoy command would be a payload we
+  shipped ourselves.
+- **Not trapped, on purpose:** `/.well-known/mcp*` (MCP discovery, served by our own nlweb
+  worker), `/mcp`, `/api/v1/mcp`, `/docs/mcp.json`, `/.vscode/settings.json`. A canary over a path
+  we serve breaks the site.
+- **Customers:** like every canary, these apply only where `HONEYPOTS_ENABLED` is on (the
+  playbook recommends off to start). If a customer's site really serves `/mcp.json` at its
+  root, that path will be answered by the decoy.
+- `test-agent-config-canaries.mjs`: 48 checks, extracting the shipped code. Proven to fail on a
+  violation (a mutated copy that traps `/.well-known/mcp.json` and ships a decoy `command` fails
+  exactly those checks). The other ten suites are unchanged and pass.
+
 ## 2.24.0 — 2026-10-29
 
 - **PHP2Shell boundary canary, closing a gap we named in public ourselves.** Our own 2026-10-28

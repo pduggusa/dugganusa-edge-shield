@@ -706,6 +706,21 @@ const CANARY_PATHS = {
   '/.git/HEAD':           { type: 'source_exposure', fake: 'git' },
   '/.aws/credentials':    { type: 'cloud_creds',     fake: 'aws' },
 
+  // AI-agent / MCP client config (2026-10-30). Added from our own edge telemetry, not a vendor
+  // report: 18 edge blocks from 4 IPs since 10-14, ramping (1, 2, 6, then 9 on 10-30 alone), all
+  // known broad scanners (already in the published blocklist) adding agent-config paths to their
+  // lists. These files hold MCP server commands, tool allowlists and often keys. Before this the
+  // edge saw them only as blocks (zero canary hits): a block shows the path, a decoy records the
+  // visit with a fingerprint. Only paths with no legitimate use at a web root are trapped. NOT
+  // /.well-known/mcp* (MCP discovery, which our own nlweb worker serves) and NOT /mcp or
+  // /api/v1/mcp. The decoy (FAKE_RESPONSES.agent_config) is inert on purpose.
+  '/.claude/':                   { type: 'agent_config_probe', fake: 'agent_config' },
+  '/.cursor/':                   { type: 'agent_config_probe', fake: 'agent_config' },
+  '/.vscode/mcp.json':           { type: 'agent_config_probe', fake: 'agent_config' },
+  '/.mcp.json':                  { type: 'agent_config_probe', fake: 'agent_config' },
+  '/mcp.json':                   { type: 'agent_config_probe', fake: 'agent_config' },
+  '/claude_desktop_config.json': { type: 'agent_config_probe', fake: 'agent_config' },
+
   // WordPress — we don't run WP, any hit is recon
   '/wp-admin/':                  { type: 'wordpress_scan', fake: 'wp' },
   '/wp-login.php':               { type: 'wordpress_scan', fake: 'wp' },
@@ -760,6 +775,14 @@ const CANARY_PATHS = {
 
 // Convincing fake responses — waste their time, harvest their fingerprint
 const FAKE_RESPONSES = {
+  // AI-agent / MCP client config (2026-10-30). INERT by design: a valid, almost empty config
+  // pointing at a reserved .invalid host (RFC 2606: can never resolve) with NO "command",
+  // "args", "env", "headers" or credential field, so a scanner that copies it into a client
+  // runs nothing and authenticates nowhere. A decoy "command" would be a payload we shipped
+  // ourselves. Every value is INVENTED; the .invalid host is the tell.
+  agent_config: () => JSON.stringify({
+    mcpServers: { 'internal-tools': { url: 'https://mcp.example.invalid/sse' } }
+  }, null, 2),
   // PHP / NativePHP (2026-10-25). Composer-manifest recon is dependency shopping: the scanner
   // reads your installed versions to pick an exploit. So the decoy answers with a manifest
   // that is attractive — pre-fix NativePHP, old Laravel — to keep it engaged long enough to
@@ -1813,7 +1836,7 @@ function honeypotResponse(request, cf, canary) {
   if (canary.fake === 'globalprotect' || canary.fake === 'panos') return paloResponse(canary.fake, new URL(request.url).pathname.toLowerCase());
   const fakeFn = FAKE_RESPONSES[canary.fake];
   const body = fakeFn ? fakeFn() : '';
-  const contentType = ['api', 'admin', 'actuator', 'php', 'nativephp'].includes(canary.fake) ? 'application/json' :
+  const contentType = ['api', 'admin', 'actuator', 'php', 'nativephp', 'agent_config'].includes(canary.fake) ? 'application/json' :
                       ['wp', 'cpanel'].includes(canary.fake) ? 'text/html' : 'text/plain';
 
   return new Response(body, {

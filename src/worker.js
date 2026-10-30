@@ -2075,13 +2075,18 @@ function rateLimitedResponse(ip, authed, limit) {
 // and whether the path was a canary. Nothing here creates an IOC. A heuristic does not get to
 // write the blocklist until its false-positive rate is known.
 //
-// What it deliberately does NOT do: it never counts or blocks verified crawlers or requests that
-// present an API key (an API client legitimately calls many distinct paths, and none of them are
-// secret-shaped anyway); it stands aside for a canary path exactly like LAYER 1 and LAYER 2 do (a
-// trapped path is answered by the decoy, see 2.21.0); and /.well-known/ is NOT secret-shaped,
-// because that is where MCP, security.txt and OpenID discovery legitimately live.
+// What it deliberately does NOT do: it never counts or blocks verified crawlers; it stands aside
+// for a canary path exactly like LAYER 1 and LAYER 2 do (a trapped path is answered by the decoy,
+// see 2.21.0); and /.well-known/ is NOT secret-shaped, because that is where MCP, security.txt and
+// OpenID discovery legitimately live. It does NOT exempt requests that carry an Authorization
+// header or ?api_key=: either is a value anyone can add, so exempting on its presence would let a
+// sweeper hide with `Authorization: x` (security review, 2026-10-30). API clients do not need the
+// exemption: their paths are not secret-shaped, so they cannot reach the share threshold.
 const SWEEP_MAX_TRACKED_PATHS = 300;
-const sweepBuckets = new Map(); // ip -> { paths: Map<path, lastSeenMs>, flaggedAt }
+const SWEEP_MAX_IPS = 20000;
+// ip -> { paths: Map<path, lastSeenMs>, flaggedAt }. Map order is least-recently-ACTIVE first:
+// a bucket is re-inserted on every request, so the hard cap evicts from the front in O(1).
+const sweepBuckets = new Map();
 const SECRET_PATH_RE = /\/\.(?!well-known\/)[a-z0-9_-]+|\.env|\.bak|\.old|\.orig|\.save|\.swp|~$|\/config\.|wp-config|\.sql$|\.zip$|\.tar|\.gz$|id_rsa|credentials|secrets?\b|docker-compose|\.ya?ml$|\.json$|\.xml$|\.ini$|\.conf$|\.php$|actuator|phpmyadmin|\/cgi-bin\//;
 // /.well-known/ is excluded as a whole, not just from the dotfile alternative: its files end in
 // .json and .xml (mcp.json, openid-configuration.json), which the extension alternatives would
@@ -2093,14 +2098,16 @@ function sweepSignal(ip, path, cfg, now = Date.now()) {
   if (!ip || !cfg || cfg.sweepMode === 'off') return null;
   const windowMs = cfg.sweepWindowS * 1000;
   let b = sweepBuckets.get(ip);
-  if (!b) { b = { paths: new Map(), flaggedAt: 0 }; sweepBuckets.set(ip, b); }
+  if (b) sweepBuckets.delete(ip); else b = { paths: new Map(), flaggedAt: 0 };
+  sweepBuckets.set(ip, b); // re-insert: most recently active goes to the back
+  // HARD cap, O(1) amortized: each request adds at most one bucket, so this evicts at most one.
+  // The earlier version only evicted EXPIRED buckets and scanned them all on every request once
+  // past the cap, so a flood of live IPs both grew without bound and burned CPU per request.
+  while (sweepBuckets.size > SWEEP_MAX_IPS) sweepBuckets.delete(sweepBuckets.keys().next().value);
   const p = String(path || '/').toLowerCase().split('?')[0].slice(0, 200);
   b.paths.delete(p); b.paths.set(p, now); // re-insert so Map order is oldest-first
   for (const [k, t] of b.paths) { if (now - t >= windowMs) b.paths.delete(k); else break; }
   while (b.paths.size > SWEEP_MAX_TRACKED_PATHS) b.paths.delete(b.paths.keys().next().value); // bound memory
-  if (sweepBuckets.size > 20000) { // evict IPs with no live paths
-    for (const [k, v] of sweepBuckets) { const last = [...v.paths.values()].pop(); if (!last || now - last >= windowMs) sweepBuckets.delete(k); }
-  }
   const distinct = b.paths.size;
   if (distinct < cfg.sweepDistinct) return null;
   let secret = 0;
@@ -2252,13 +2259,13 @@ async function handleFetch(request, env, ctx, obs) {
     // Breadth of secret-shaped paths, not volume. It sits ahead of every enforcement layer on
     // purpose, like LAYER 0.5: a sweep that a later layer 418s, 403s or answers with a decoy still
     // ARRIVED, and counting only the requests that reach origin would miss exactly the operators
-    // we already block. Counts EVERY request that is not a verified crawler or key-bearing.
-    // OBSERVE by default: it logs and tags the response, never writes an IOC. Enforcement
-    // (SWEEP_MODE="block") is a separate step before LAYER 3, because it must stand aside for a
-    // canary path and the canary is not resolved yet. See the detector's header for the
-    // measurement behind the thresholds and what it deliberately skips.
-    const sweepAuthed = !!(request.headers.get('authorization') || reqUrl.searchParams.get('api_key'));
-    const sweep = (!verifiedCrawler && !sweepAuthed) ? sweepSignal(ip, reqUrl.pathname, cfg) : null;
+    // we already block. Counts EVERY request that is not a verified crawler, deliberately
+    // including ones that present an Authorization header or ?api_key=: that is a value anyone can
+    // add, so exempting on it would be a one-header evasion. OBSERVE by default: it logs and tags
+    // the response, never writes an IOC. Enforcement (SWEEP_MODE="block") is a separate step
+    // before LAYER 3, because it must stand aside for a canary path and the canary is not resolved
+    // yet. See the detector's header for the measurement behind the thresholds.
+    const sweep = !verifiedCrawler ? sweepSignal(ip, reqUrl.pathname, cfg) : null;
     if (sweep) {
       observed.push('sweep');
       if (sweep.first) {

@@ -19,17 +19,29 @@ All notable changes to DugganUSA Edge Shield are documented here.
   blocklist until its false-positive rate is known. `block` answers 403; `off` disables it.
 - **Vars:** `SWEEP_MODE`, `SWEEP_DISTINCT` (default 20), `SWEEP_SECRET_SHARE` (60, percent),
   `SWEEP_WINDOW_S` (60). Bad values fall back to the default with a `config:` warning.
-- **What it does not count:** verified crawlers, requests carrying an API key, and `/.well-known/`
-  (MCP, security.txt and OpenID discovery live there). A test caught `/.well-known/mcp.json` being
-  classified secret-shaped through the `.json` extension before this shipped.
+- **What it does not count:** verified crawlers, and `/.well-known/` (MCP, security.txt and OpenID
+  discovery live there). A test caught `/.well-known/mcp.json` being classified secret-shaped
+  through the `.json` extension before this shipped.
+- **Requests carrying an API key ARE counted.** The first cut exempted any request with an
+  `Authorization` header or `?api_key=`; the automated security review of that commit flagged it as
+  a one-header evasion (anyone can send `Authorization: x`) and it was right. Legitimate API clients
+  do not need the exemption: their paths are not secret-shaped, so they cannot reach the share
+  threshold.
+- **Hard cap on tracked IPs.** The first cut only evicted expired buckets, scanning all of them per
+  request once past 20,000, so a flood of live IPs would have grown the map without bound and
+  burned CPU per request. Buckets are now re-inserted on each request (least-recently-active
+  first) and the oldest is evicted in O(1), with 25,000 live IPs leaving 20,000 tracked. The
+  per-IP rate limiter (`rlBuckets`) uses the older expired-only pattern; it is unchanged here.
 - **Placement:** recording and logging run at LAYER 0.2, ahead of every enforcement layer, so a
   sweep that LAYER 1 or LAYER 2 would answer is still counted. Block-mode enforcement is a
   separate LAYER 2.5 that stands aside for canary paths, as LAYER 1 and LAYER 2 do (2.21.0).
 - **Limits:** the Worker sees only the paths its routes send it, so the detector covers hosts with
   catch-all routes and only the routed paths elsewhere. Tracking is per isolate and bounded (300
-  paths per IP, 20,000 IPs), like the rate limiter.
-- `test-sweep-detector.mjs`: 47 checks over the shipped code and the handler hook. Proven to fail
-  on a mutated detector. The other eleven suites are unchanged and pass.
+  paths per IP, 20,000 IPs).
+- `test-sweep-detector.mjs`: 53 checks over the shipped code and the handler hook, including the
+  header-evasion and hard-cap cases. Proven to fail on a mutated detector (cap removed and the
+  exemption re-added fails exactly the four checks that guard them). The other eleven suites are
+  unchanged and pass.
 
 ## 2.25.1 — 2026-10-30
 

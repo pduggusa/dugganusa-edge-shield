@@ -79,6 +79,23 @@ const wide = feed('11.0.0.1', secrets(1000, 'w'), T0, 10);
 check('1000-path sweep: still flagged', !!wide, true);
 check('tracking is bounded to 300 paths', sweepBuckets.get('11.0.0.1').paths.size <= 300, true);
 
+// 6b. HARD cap on tracked IPs, O(1) eviction (security review 2026-10-30). The earlier version only
+// evicted EXPIRED buckets and scanned them all per request past the cap, so a flood of LIVE IPs grew
+// the map without bound and burned CPU per request. 25,000 distinct live IPs must leave <= 20,000
+// tracked, evict the OLDEST first, keep the newest, and stay cheap.
+reset();
+const tStart = Date.now();
+for (let i = 0; i < 25000; i++) sweepSignal(`ip-${i}`, '/.env', cfg, T0 + i);
+const elapsed = Date.now() - tStart;
+check('25,000 live IPs: map capped at 20,000', sweepBuckets.size, 20000);
+check('the oldest IP was evicted', sweepBuckets.has('ip-0'), false);
+check('the newest IP is still tracked', sweepBuckets.has('ip-24999'), true);
+check('eviction is cheap (25,000 calls finish well under 2s)', elapsed < 2000, true);
+reset();
+for (let i = 0; i < 20000; i++) sweepSignal(`idle-${i}`, '/x', cfg, T0 + i);
+const live = feed('active-sweeper', secrets(25, 'k'), T0 + 20_000, 10);
+check('an active sweeper is re-inserted as most-recent and survives the idle flood', !!live && sweepBuckets.has('active-sweeper') && !sweepBuckets.has('idle-0'), true);
+
 // 7. Sample, shape and the block response.
 reset();
 const f = feed('12.0.0.1', secrets(25));
@@ -108,7 +125,10 @@ check('SWEEP_MODE is independent of SHIELD_MODE', (() => { const c = loadConfig(
 const strip = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
 const early = strip(slice('// LAYER 0.2: SWEEP detector', '// LAYER 0.5:'));
 check('LAYER 0.2 never returns', /\breturn\b/.test(early), false);
-check('LAYER 0.2 skips verified crawlers and key-bearing requests', /!verifiedCrawler/.test(early) && /sweepAuthed/.test(early), true);
+check('LAYER 0.2 skips verified crawlers', /!verifiedCrawler/.test(early), true);
+// Security review 2026-10-30: exempting on an Authorization header or ?api_key= is a one-header
+// evasion (a value anyone can add). The detector must count those requests like any other.
+check('LAYER 0.2 does NOT exempt on Authorization / api_key (evasion)', /authorization|api_key|sweepAuthed/i.test(early), false);
 const enforce = strip(slice('// LAYER 2.5: SWEEP enforcement', '// LAYER 3:'));
 check('enforcement is gated on block mode, the observe switch and the canary stand-aside', /cfg\.sweepMode === 'block'/.test(enforce) && /!cfg\.observe/.test(enforce) && /!canary/.test(enforce), true);
 check('LAYER 0.2 precedes LAYER 1 (counts what a later layer answers)', src.indexOf('// LAYER 0.2: SWEEP') < src.indexOf('// LAYER 1: Scanner detection'), true);

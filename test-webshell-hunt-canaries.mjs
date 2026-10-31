@@ -6,7 +6,8 @@
  *
  * The cases that matter most are the ones that must NOT trap: a bare cache.php, and real
  * CMS paths. A canary over a path a customer actually serves breaks their site. The decoy
- * must also be INERT, and the gate must keep customer zones off unless they opt in.
+ * is a lure that must stay INERT (no active content), and the gate must keep customer zones off unless
+ * they opt in.
  *
  *   node test-webshell-hunt-canaries.mjs
  */
@@ -59,9 +60,18 @@ check('plain path is not marked', (getWebshellHuntCanary('/images/images/cache.p
 // 4. The trap is its own thing: the generic canary does not already answer these paths.
 check('generic getCanary does not already trap it', getCanary('/images/images/cache.php'), null);
 
-// 5. The decoy is inert: an empty body, no code, no credential, no command.
+// 5. The decoy is a LURE and stays INERT (2.28.0). It must carry what public shell finders match on,
+//    and nothing active: no form, input, script, link, command or credential. A door that has to
+//    open (a form action) would fall through to the blocker, so there must be no door at all.
 check('decoy exists', typeof FAKE_RESPONSES.webshell_hunt, 'function');
-check('decoy body is empty', FAKE_RESPONSES.webshell_hunt(), '');
+const lure = FAKE_RESPONSES.webshell_hunt();
+check('lure carries the 403WebShell title', lure.includes('<title>403WebShell</title>'), true);
+check('lure carries a "User :" line', lure.includes('User :'), true);
+for (const bad of ['<form', '<input', '<script', '<a ', 'href=', 'src=', 'action=', 'onload', 'onerror', 'eval(', 'exec(', 'system(', 'passthru', 'base64', 'http://', 'https://', 'password', 'passwd', 'token', 'key=']) {
+  check(`lure has no ${bad}`, lure.toLowerCase().includes(bad), false);
+}
+check('lure is small (under 300 bytes)', lure.length < 300, true);
+check('lure is served as text/html', /\['wp', 'cpanel', 'webshell_hunt'\]\.includes\(canary\.fake\) \? 'text\/html'/.test(src), true);
 
 // 6. The gate: our own zones by default, customers only on opt-in, "false" off everywhere.
 check('own zone, unset', webshellHuntCanariesEnabled({}, 'dugganusa.com'), true);

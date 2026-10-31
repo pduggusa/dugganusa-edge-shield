@@ -798,8 +798,13 @@ const CANARY_PATHS = {
 
 // Convincing fake responses — waste their time, harvest their fingerprint
 const FAKE_RESPONSES = {
-  // Webshell hunt (2026-10-31). INERT: an empty body. See the WEBSHELL-HUNT CANARY comment.
-  webshell_hunt: () => '',
+  // Webshell hunt (2026-10-31, lure added 2.28.0). INERT: a page that carries the strings public
+  // shell-finder scripts look for in a response (the title 403WebShell and a "User :" line) and
+  // NOTHING else: no form, no input, no script, no link, no function. A finder that matches marks
+  // the site as having a shell and comes back to use it; the same canary then records that
+  // second request (method, field names, body length), which is the intel. See the
+  // WEBSHELL-HUNT CANARY comment.
+  webshell_hunt: () => '<!DOCTYPE html><html><head><meta charset="utf-8"><title>403WebShell</title></head><body><pre>User : nobody</pre></body></html>',
   // AI-agent / MCP client config (2026-10-30). INERT by design: a valid, almost empty config
   // pointing at a reserved .invalid host (RFC 2606: can never resolve) with NO "command",
   // "args", "env", "headers" or credential field, so a scanner that copies it into a client
@@ -1010,8 +1015,12 @@ const APPLIANCE_OWN_ZONES = ['dugganusa.com', 'aipmsec.com'];
 // REPEATED segment traps. A real site does not serve /media/media/cache.php. This Worker also
 // runs on customer zones, so like the appliance canaries it is on by default for our own zones
 // only; WEBSHELL_HUNT_CANARIES="true" opts a customer in and "false" turns it off everywhere.
-// The decoy is inert on purpose (an empty 200): a shell lookalike with a response we wrote
-// would be a payload we shipped ourselves.
+// The decoy is a LURE, and still inert (2.28.0; 2.27.0 answered an empty 200). Public finders
+// such as the ones we read on GitHub mark a site as having a shell when the response contains
+// strings like the title 403WebShell, and an empty page makes them log a miss and move on, which
+// teaches us nothing. The lure carries only those strings: no form, input, script, link or
+// working function, so we ship no payload and no door that has to open. A finder that matches
+// comes back to use the "shell", and that second request hits this same canary.
 function webshellHuntCanariesEnabled(env, hostname) {
   const flag = String(env.WEBSHELL_HUNT_CANARIES ?? '').toLowerCase();
   if (flag === 'false') return false;
@@ -1902,7 +1911,7 @@ function honeypotResponse(request, cf, canary) {
   const fakeFn = FAKE_RESPONSES[canary.fake];
   const body = fakeFn ? fakeFn() : '';
   const contentType = ['api', 'admin', 'actuator', 'php', 'nativephp', 'agent_config'].includes(canary.fake) ? 'application/json' :
-                      ['wp', 'cpanel'].includes(canary.fake) ? 'text/html' : 'text/plain';
+                      ['wp', 'cpanel', 'webshell_hunt'].includes(canary.fake) ? 'text/html' : 'text/plain';
 
   return new Response(body, {
     status: 200, // Looks real

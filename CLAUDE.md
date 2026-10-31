@@ -235,7 +235,7 @@ warning in Workers Logs. Full comments live in `wrangler.example.toml`.
 | `HONEYPOTS_ENABLED` | `true` | `true` / `false` |
 | `CANARY_BODY_SAMPLE` | unset (off) | `true` / `false`. Stores up to 512 bytes of a canary hit's raw request body, credential-shaped values replaced with `[redacted]`. **Off by default and should stay off unless you are actively hunting a payload** — 2.22.0 already records marker names, body length, content type and field NAMES without it, which answers "scanner or exploit" on its own |
 | `APPLIANCE_CANARIES` | unset | unset = DugganUSA zones only; `true` / `false` |
-| `WEBSHELL_HUNT_CANARIES` | unset | unset = DugganUSA zones only; `true` / `false`. Answers an inert empty 200 to a `cache.php` reached through a directory chain with a repeated segment (a webshell hunt) and records the visit. Never traps a bare `/cache.php` |
+| `WEBSHELL_HUNT_CANARIES` | unset | unset = DugganUSA zones only; `true` / `false`. Answers an inert lure page (title `403WebShell` and a `User :` line only: no form, input, script or link) to a `cache.php` reached through a directory chain with a repeated segment (a webshell hunt) and records the visit. Never traps a bare `/cache.php` |
 | `HARVESTED_OBSERVE` | unset | unset = DugganUSA zones only; `true` / `false`. Pass-through observation of public-PoC exploit paths; reports CVE, path, ASN, country and method to DugganUSA (never your hostname, the visitor's UA or network), never blocks |
 | `FEED_HIT_REPORTING` | `true` | `true` / `false` |
 | `SCHEMA_INJECT_HOSTS` | DugganUSA's hosts | comma list; `""` = none |

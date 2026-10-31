@@ -2,6 +2,22 @@
 
 All notable changes to DugganUSA Edge Shield are documented here.
 
+## 2.28.0 — 2026-10-31
+
+- **The webshell-hunt decoy is now a lure.** 2.27.0 answered an empty 200. We then read the public scripts
+  behind this traffic (the misspelled "Mozlila" user agent is hard-coded in dozens of them): a typical
+  finder requests a file name and marks the site as having a shell only if the response contains a
+  signature string such as the title `403WebShell`, `LinuXploit` or `User :`. An empty page gets a
+  logged miss and the finder moves on, which is no better than a block. The decoy now returns a page with
+  that title and a `User :` line and nothing else. A finder that matches comes back to use the "shell",
+  and the same canary records that second request (method, field names, body length, content type).
+- **Still inert, on purpose.** No form, input, script, link or function: no payload shipped and no door
+  that has to open. `CANARY_BODY_SAMPLE` stays off by default; field names and body length already tell
+  scanner from exploit.
+- **Honest limit.** Most of the observed traffic (207 of 212 blocks since 2026-08-01) was stopped by
+  Cloudflare's managed ruleset, which runs before this Worker, so the lure may rarely be seen. The next
+  real hit is the test.
+
 ## 2.27.0 — 2026-10-31
 
 - **Webshell-hunt canary.** From our own edge, 2026-10-01 to 10-31: 121 blocks from 15 IPs (eight

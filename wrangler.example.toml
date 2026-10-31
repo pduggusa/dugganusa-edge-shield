@@ -107,6 +107,7 @@ HONEYPOTS_ENABLED = "false"
 # or "false" if you run a real NetScaler behind these hosts. Unset = on only for
 # DugganUSA's own zones, off for yours. [unset]
 # APPLIANCE_CANARIES = "true"
+# WEBSHELL_HUNT_CANARIES = "true"   # webshell-hunt decoy (cache.php behind a repeated-directory chain); unset = DugganUSA zones only
 
 # Harvested-path observation (2.15.0): requests on paths from public exploit PoCs are passed
 # through untouched and reported to DugganUSA (CVE, path from OUR list, ASN, country, method;

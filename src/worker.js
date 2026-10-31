@@ -798,6 +798,8 @@ const CANARY_PATHS = {
 
 // Convincing fake responses — waste their time, harvest their fingerprint
 const FAKE_RESPONSES = {
+  // Webshell hunt (2026-10-31). INERT: an empty body. See the WEBSHELL-HUNT CANARY comment.
+  webshell_hunt: () => '',
   // AI-agent / MCP client config (2026-10-30). INERT by design: a valid, almost empty config
   // pointing at a reserved .invalid host (RFC 2606: can never resolve) with NO "command",
   // "args", "env", "headers" or credential field, so a scanner that copies it into a client
@@ -990,6 +992,46 @@ const APPLIANCE_CANARY_EXACT = new Set([
   '/vpn/js/rdx/core/lang/rdx_en.json.gz',
 ]);
 const APPLIANCE_OWN_ZONES = ['dugganusa.com', 'aipmsec.com'];
+
+// ================================================================
+// WEBSHELL-HUNT CANARY (2.27.0)
+// ================================================================
+// Measured on our own edge, 2026-10-01 to 10-31: 121 blocks from 15 IPs (eight DigitalOcean,
+// three OVH, a few others), 118 of them with one misspelled user agent ("Mozlila ... Bulid ...
+// Moblie Safari"), on 12 separate days and almost daily from 10-25 through 10-31. Every request walked a chain of
+// repeated directory names to a file called cache.php, for example
+// //cgi-bin/cgi-bin/cgi-bin/cgi-bin/cache.php or /wp-content/plugins/plugins/cache.php. That
+// is a hunt for a webshell somebody already dropped, not an exploit. The edge blocked all of
+// it, so the canary and origin instruments saw zero: a block shows the path, a decoy records
+// the visit with a fingerprint and shows what is asked next.
+//
+// THE MATCH IS THE SHAPE, NOT THE FILE NAME. A bare cache.php is ordinary (WordPress and other
+// CMSes ship real ones), so only a final cache.php under a directory chain with an ADJACENT
+// REPEATED segment traps. A real site does not serve /media/media/cache.php. This Worker also
+// runs on customer zones, so like the appliance canaries it is on by default for our own zones
+// only; WEBSHELL_HUNT_CANARIES="true" opts a customer in and "false" turns it off everywhere.
+// The decoy is inert on purpose (an empty 200): a shell lookalike with a response we wrote
+// would be a payload we shipped ourselves.
+function webshellHuntCanariesEnabled(env, hostname) {
+  const flag = String(env.WEBSHELL_HUNT_CANARIES ?? '').toLowerCase();
+  if (flag === 'false') return false;
+  if (flag === 'true') return true;
+  const host = String(hostname || '').toLowerCase();
+  return APPLIANCE_OWN_ZONES.some(z => host === z || host.endsWith('.' + z));
+}
+
+function getWebshellHuntCanary(path) {
+  const encoded = safeDecode(path) !== path;
+  for (const p of [path, safeDecode(path)]) {
+    const segs = p.toLowerCase().split('/').filter(Boolean);
+    if (segs.length < 3 || segs[segs.length - 1] !== 'cache.php') continue;
+    const dirs = segs.slice(0, -1);
+    if (dirs.some((d, i) => i > 0 && d === dirs[i - 1])) {
+      return { type: 'webshell_hunt', fake: 'webshell_hunt', product: 'php-webshell', ...(encoded ? { encoded_path: true } : {}) };
+    }
+  }
+  return null;
+}
 
 function applianceCanariesEnabled(env, hostname) {
   const flag = String(env.APPLIANCE_CANARIES ?? '').toLowerCase();
@@ -2335,7 +2377,8 @@ async function handleFetch(request, env, ctx, obs) {
     // but the exemption stays consistent rather than special-cased per canary type.
     const canary = (honeypotsEnabled && !verifiedCrawler)
       ? (getCanary(path) || getPhp2ShellBoundaryCanary(request) ||
-         (applianceCanariesEnabled(env, hostname) ? getApplianceCanary(path) : null))
+         (applianceCanariesEnabled(env, hostname) ? getApplianceCanary(path) : null) ||
+         (webshellHuntCanariesEnabled(env, hostname) ? getWebshellHuntCanary(path) : null))
       : null;
 
     // ============================================================

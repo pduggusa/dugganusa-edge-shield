@@ -2,6 +2,23 @@
 
 All notable changes to DugganUSA Edge Shield are documented here.
 
+## 2.27.0 — 2026-10-31
+
+- **Webshell-hunt canary.** From our own edge, 2026-10-01 to 10-31: 121 blocks from 15 IPs (eight
+  DigitalOcean, three OVH, four others), 118 with one misspelled user agent ("Mozlila ... Bulid ...
+  Moblie Safari"), on 12 separate days and almost daily from 10-25 on. Each request walked a chain of
+  repeated directory names to cache.php (//cgi-bin/cgi-bin/cgi-bin/cgi-bin/cache.php,
+  /wp-content/plugins/plugins/cache.php): a hunt for a webshell somebody already dropped. The edge blocked
+  every one, so the canary and origin instruments saw nothing. Now a final cache.php under a directory
+  chain with an adjacent repeated segment answers an inert empty 200 and records the visit with a
+  fingerprint, so the next request is visible. Canary resolution already outranks the 418 and 403 layers.
+- **The match is the shape, not the file name.** A bare cache.php is ordinary (CMSes ship real ones), so
+  /cache.php, /cache/cache.php, /wp-content/plugins/foo/cache.php and a cache.php.bak do not trap.
+  `test-webshell-hunt-canaries.mjs` (38 cases) holds that line, and extracts the shipped code.
+- **Scope:** `WEBSHELL_HUNT_CANARIES` unset = DugganUSA zones only, like the appliance canaries. `true`
+  opts a customer zone in, `false` turns it off everywhere. A hit is a honeypot hit, so the
+  `HONEYPOTS_ENABLED` switch and its privacy note (IP, user agent, geo and URL go to DugganUSA) apply.
+
 ## 2.26.0 — 2026-10-30
 
 - **Sweep detector: path diversity, not volume.** We replayed four weeks of our own edge traffic

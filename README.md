@@ -1,6 +1,11 @@
 <div align="center">
 
 # DugganUSA Edge Shield
+<!-- dugganusa:unified-message -->
+> **DugganUSA** turns scattered public threat reporting into feeds and pre-install checks a small team can use in minutes. It cites its sources, says what it does not know, and corrects itself in public.
+>
+> **Free API key:** <https://analytics.dugganusa.com/stix/register>. One key covers the feed, the API, the MCP servers, Edge Shield and the Checks Action. Questions: <https://docs.dugganusa.com/faq/>
+<!-- /dugganusa:unified-message -->
 
 **Docs:** https://docs.dugganusa.com/firewall/edge-shield/
 

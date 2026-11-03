@@ -329,6 +329,16 @@ const CRAWLER_UA_TO_DOMAINS = [
   { ua: 'claudebot',          domains: ['.anthropic.com'] },
   { ua: 'claude-web',         domains: ['.anthropic.com'] },
   { ua: 'perplexitybot',      domains: ['.perplexity.ai'] },
+  // AgenstryBot (agenstry.com), added 2.28.1. An independent directory of A2A agents and MCP servers
+  // that polls well-known discovery files (/.well-known/mcp.json, /llms.txt, /mcp.json) about every six
+  // hours. Cloudflare lists it as a verified bot (category Academic Research, from about 2026-10-22);
+  // its source address is the host agenstry.com itself resolves to. Its PTR is a googleusercontent.com
+  // name, NOT agenstry.com, so the forward-confirmed rDNS leg below does not pass: this entry is
+  // admitted ONLY through Cloudflare's own verification (the fast path in isVerifiedCrawler). If
+  // Cloudflare ever drops it, it falls back to rDNS, fails, and is treated as any other client.
+  // Why it is here: on 2026-10-30 it fetched the /mcp.json decoy, was recorded as a scanner at
+  // confidence 95, and from 2026-10-31 our own edge answered 403 on our real MCP manifest.
+  { ua: 'agenstrybot',        domains: ['.agenstry.com'] },
 ];
 
 // DELIBERATELY NOT ALLOWLISTED — policy, not oversight. Do not "fix" these back

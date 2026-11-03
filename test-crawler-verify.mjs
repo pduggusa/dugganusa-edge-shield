@@ -38,6 +38,10 @@ const cases = [
   ['empty UA is not a crawler',                                       '',           '1.2.3.4',        {}, false],
   // Cloudflare's own verdict is authoritative and skips DNS entirely.
   ['CF verifiedBot flag short-circuits to allow',                     GOOGLEBOT_UA, '203.0.113.9', { botManagement: { verifiedBot: true } }, true],
+  // AgenstryBot (2.28.1): admitted only through Cloudflare's verification, never by UA alone.
+  ['AgenstryBot UA + Cloudflare verifiedBotCategory is allowed',      'AgenstryBot/0.3.0 (+https://agenstry.com/bot)', '35.205.139.4',  { verifiedBotCategory: 'Academic Research' }, true],
+  ['impostor: AgenstryBot UA from a rented GCP box, CF unverified',   'AgenstryBot/0.3.0 (+https://agenstry.com/bot)', '34.174.192.151', {}, false],
+  ['AgenstryBot UA from its own host, CF NOT verified, fails closed', 'AgenstryBot/0.3.0 (+https://agenstry.com/bot)', '35.205.139.4',  {}, false],
   // Deliberate exclusion.
   ['Bytespider is deliberately NOT allowlisted', 'Mozilla/5.0 (compatible; Bytespider; spider-feedback@bytedance.com)', '110.249.201.1', {}, false],
 ];

@@ -2,6 +2,18 @@
 
 All notable changes to DugganUSA Edge Shield are documented here.
 
+## 2.28.1 — 2026-11-03
+
+- **AgenstryBot is a verified crawler.** An MCP and A2A directory crawler (agenstry.com, Cloudflare verified bot,
+  category Academic Research) fetched the `/mcp.json` decoy on 2026-10-30, was recorded as a scanner at
+  confidence 95 and, from 2026-10-31, was answered 403 on our real `/.well-known/mcp.json`, `/llms.txt` and
+  server-card paths. One trap hit by a self-identifying, Cloudflare-verified crawler should not outrank the
+  verification. It is added to the verified-crawler table (Layer 0: never block, never trap).
+- **Admitted by Cloudflare's verification only.** Its PTR is a googleusercontent.com name, so the
+  forward-confirmed rDNS leg cannot prove it. If Cloudflare drops it, it is treated as any other client.
+- **Not changed:** the `/mcp.json` decoy itself stays, and every other client that touches it is recorded
+  as before. Three tests added to test-crawler-verify.mjs, including the impostor from a rented GCP box.
+
 ## 2.28.0 — 2026-10-31
 
 - **The webshell-hunt decoy is now a lure.** 2.27.0 answered an empty 200. We then read the public scripts

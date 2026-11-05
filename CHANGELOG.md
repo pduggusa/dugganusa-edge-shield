@@ -2,6 +2,20 @@
 
 All notable changes to DugganUSA Edge Shield are documented here.
 
+## 2.29.0 — 2026-11-05
+
+- **Feed-hit reports are coalesced.** Until now every request that matched a feed indicator made its own POST to
+  `/api/v1/feed/hit`. On 2026-11-05 06:20Z one listed scanner sent 2,969 requests in two minutes and the Worker
+  POSTed about 2,716 separate reports for that single address; the origin answered about 1,990 of them with 5xx.
+  Reports now buffer per isolate and flush as one POST per 1.5 s window (or at 100 hits), through the `hits` array
+  the route already accepts.
+- **Counting is unchanged.** Each hit keeps its own `event_id` (the Cloudflare ray) and `count: 1`, so each block
+  still counts once and a retry still never double counts. Reports for different actions (`blocked` / `observed`)
+  and different zones are never mixed in one POST. With no `ctx` it falls back to one immediate POST.
+- **A shedding origin is not retried.** If the origin answers 503 the batch is logged and dropped. These are
+  liveness reports, not enforcement: a dropped batch costs a count, never a block.
+- **Not changed:** honeypot canary ingest still posts one report per hit. The origin now bounds that path itself.
+
 ## 2.28.1 — 2026-11-03
 
 - **AgenstryBot is a verified crawler.** An MCP and A2A directory crawler (agenstry.com, Cloudflare verified bot,

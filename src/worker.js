@@ -2045,13 +2045,19 @@ async function indexHoneypotHit(env, request, cf, canary, tell = {}) {
 //
 // `action` is 'blocked', or 'observed' in SHIELD_MODE="observe": the indicator
 // matched real traffic and the shield let it through on purpose. Same contract.
-async function reportFeedHit(env, indicator, hostname, rayId, action = 'blocked') {
+// COALESCED (2.29.0). Until 2.28.1 every matched request made its own POST to /feed/hit. On 2026-11-05 06:20Z one
+// scanner (a single listed IP) sent 2,969 requests in two minutes and the Worker POSTed ~2,716 reports for that ONE
+// address, each with its own Meilisearch write at the origin; the origin browned out and returned ~1,990 5xx. The route
+// already accepts a `hits` array (up to 1,000), so reports now buffer per isolate and flush as one POST per window.
+// Each hit still carries its own `event_id` (the CF ray) and count, so counting is unchanged: each block counts once and a
+// retry never double counts. Only the number of HTTP requests changes.
+const FEED_HIT_WINDOW_MS = 1500;   // collection window: the first hit schedules the flush
+const FEED_HIT_MAX_BATCH = 100;    // flush early at this many (the origin route allows 1,000)
+const FEED_HIT_BUFFERS = new Map(); // `${zone}|${action}` -> { zone, hits: [] }
+
+async function postFeedHits(env, zone, hits) {
   const apiKey = env.DUGGANUSA_API_KEY;
-  if (!apiKey || !indicator) return;
-  // `zone` only for DugganUSA's own properties (first-party dogfood); null → omitted.
-  // `event_id` = the CF ray of the blocked request (the attacker's request, not a
-  // visitor attribute) so each block counts once and a retry never double counts.
-  const zone = firstPartyZone(hostname);
+  if (!apiKey || !hits.length) return;
   try {
     const resp = await fetch(`${DUGGANUSA_API}/feed/hit`, {
       method: 'POST',
@@ -2063,22 +2069,55 @@ async function reportFeedHit(env, indicator, hostname, rayId, action = 'blocked'
       body: JSON.stringify({
         consumer_kind: 'edge-shield',
         ...(zone ? { zone } : {}),
-        hits: [{
-          indicator,
-          action,
-          direction: 'inbound',
-          count: 1,
-          ts: Date.now(),
-          ...(rayId ? { event_id: `cf-ray-${rayId}` } : {})
-        }]
+        hits
       })
     });
     if (!resp.ok) {
-      console.log(`Feed-hit report failed: ${resp.status} ${await resp.text().catch(() => '')}`);
+      // 503 + Retry-After means the origin is shedding load: say so, do not retry-storm it. These are liveness reports, not
+      // enforcement, so a dropped batch costs a count, never a block.
+      console.log(`Feed-hit report failed: ${resp.status} (${hits.length} hits) ${await resp.text().catch(() => '')}`);
     }
   } catch (e) {
-    console.log(`Feed-hit report error: ${e.message}`);
+    console.log(`Feed-hit report error: ${e.message} (${hits.length} hits)`);
   }
+}
+
+function flushFeedHits(env, key) {
+  const b = FEED_HIT_BUFFERS.get(key);
+  if (!b || !b.hits.length) return Promise.resolve();
+  FEED_HIT_BUFFERS.delete(key);
+  return postFeedHits(env, b.zone, b.hits);
+}
+
+// `ctx` keeps the isolate alive until the window closes (ctx.waitUntil). Without a ctx (tests, odd callers) it falls back to
+// the old behavior: one immediate POST.
+function reportFeedHit(env, indicator, hostname, rayId, action = 'blocked', ctx = null) {
+  const apiKey = env.DUGGANUSA_API_KEY;
+  if (!apiKey || !indicator) return Promise.resolve();
+  // `zone` only for DugganUSA's own properties (first-party dogfood); null → omitted.
+  // `event_id` = the CF ray of the blocked request (the attacker's request, not a
+  // visitor attribute) so each block counts once and a retry never double counts.
+  const zone = firstPartyZone(hostname);
+  const hit = {
+    indicator,
+    action,
+    direction: 'inbound',
+    count: 1,
+    ts: Date.now(),
+    ...(rayId ? { event_id: `cf-ray-${rayId}` } : {})
+  };
+  if (!ctx || typeof ctx.waitUntil !== 'function') return postFeedHits(env, zone, [hit]);
+  const key = `${zone || ''}|${action}`;
+  let b = FEED_HIT_BUFFERS.get(key);
+  if (!b) {
+    b = { zone, hits: [] };
+    FEED_HIT_BUFFERS.set(key, b);
+    // The first hit of a window schedules its flush; later hits just join the buffer.
+    ctx.waitUntil(new Promise((r) => setTimeout(r, FEED_HIT_WINDOW_MS)).then(() => flushFeedHits(env, key)));
+  }
+  b.hits.push(hit);
+  if (b.hits.length >= FEED_HIT_MAX_BATCH) ctx.waitUntil(flushFeedHits(env, key)); // a later timer then finds an empty buffer
+  return Promise.resolve();
 }
 
 // ================================================================
@@ -2420,7 +2459,7 @@ async function handleFetch(request, env, ctx, obs) {
       // privacy-preserving (indicator only, never the visitor/asset). In observe
       // mode the match is still reported, as 'observed': the evidence is the same.
       if (apiKey && cfg.feedHitReporting) {
-        ctx.waitUntil(reportFeedHit(env, ip, hostname, rayId, (cfg.observe || canary) ? 'observed' : 'blocked'));
+        reportFeedHit(env, ip, hostname, rayId, (cfg.observe || canary) ? 'observed' : 'blocked', ctx);
       }
       if (!cfg.observe && !canary) return blockedResponse(ip);
       observed.push('ioc');

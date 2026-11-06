@@ -2,6 +2,21 @@
 
 All notable changes to DugganUSA Edge Shield are documented here.
 
+## 2.30.0 — 2026-11-06
+
+- **Apache OFBiz canary.** The Apache maintainers fixed 46 flaws on 2026-11-04, including CVE-2026-68524 (pre-auth
+  remote code execution) and CVE-2026-109928 (account takeover), fixed in OFBiz 24.09.08. OFBiz has three CISA KEV
+  entries from 2024 and 2025 and was scanned within days each time. `/webtools/` and the `/control/` servlet of each
+  OFBiz app (`/accounting`, `/catalog`, `/ecommerce`, `/partymgr`, `/ordermgr`, `/myportal`) now answer the inert
+  admin decoy and are recorded as `ofbiz_scan` canary hits. The public PoC shape
+  `/webtools/control/forgotPassword/../ProgramExport` falls under `/webtools/`.
+- **Measured first.** Zero OFBiz-shaped requests on dugganusa.com or aipmsec.com in 30 days of Cloudflare logs, so
+  the baseline is clean and the first hit will be real. Before this, such a sweep reached us as ordinary 404s.
+- **Collisions checked.** All eight candidate paths return 404 on both the Wix site and the analytics host. Bare
+  `/catalog`, `/accounting` and `/ecommerce` are deliberately NOT trapped: ordinary sites use them. 17 new test
+  cases, including those near-misses.
+- **Same response shape.** Reuses the existing admin decoy; no new fake-response code.
+
 ## 2.29.0 — 2026-11-05
 
 - **Feed-hit reports are coalesced.** Until now every request that matched a feed indicator made its own POST to

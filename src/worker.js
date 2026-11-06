@@ -1300,6 +1300,18 @@ const APPCONSOLE_CANARIES = [
     prefixes: ['/debug/default/', '/frontend/web/debug/'] },
   { type: 'dbadmin_probe', product: 'db-admin-console',
     exact: ['/dbadmin', '/dbadmin/index.php'], prefixes: ['/dbadmin/'] },
+  // Apache OFBiz (2.30.0, 2026-11-06). The Apache maintainers fixed 46 flaws on 2026-11-04, including CVE-2026-68524
+  // (pre-auth RCE) and CVE-2026-109928 (account takeover), fixed in 24.09.08. OFBiz has three CISA KEV entries from
+  // 2024-2025 and was scanned within days each time. MEASURED FIRST: zero OFBiz-shaped requests (/webtools/, */control/main,
+  // ProgramExport) on dugganusa.com or aipmsec.com in 30 days of Cloudflare logs, so the baseline is clean and the first hit
+  // will be real. COLLISION CHECKED: all eight candidate paths 404 on www (Wix) and analytics (ours). Only the narrow OFBiz
+  // shapes are trapped: /webtools/ and each OFBiz app's /control/ servlet. Bare /catalog, /accounting and /ecommerce are NOT
+  // trapped, because ordinary sites use them. The known PoC shape /webtools/control/forgotPassword/../ProgramExport falls
+  // under /webtools/.
+  { type: 'ofbiz_scan', product: 'apache-ofbiz',
+    exact: ['/webtools', '/webtools/control/main', '/webtools/control/programexport'],
+    prefixes: ['/webtools/', '/accounting/control/', '/catalog/control/', '/ecommerce/control/', '/partymgr/control/',
+               '/ordermgr/control/', '/myportal/control/'] },
 ];
 
 function getAppConsoleCanary(lower, withSlash) {

@@ -44,6 +44,16 @@ for (const [p, type] of [
   ['/nagios/', 'nagios_scan'],                   // 86
   ['/dbadmin', 'dbadmin_probe'],                 // 82
   ['/jmx-console/', 'jboss_scan'],               // 80
+  // Apache OFBiz (2.30.0): CVE-2026-68524 pre-auth RCE and CVE-2026-109928, fixed 2026-11-04. Zero prior requests in 30d of CF logs.
+  ['/webtools/control/main', 'ofbiz_scan'],
+  ['/webtools/control/ProgramExport', 'ofbiz_scan'],
+  ['/webtools/control/forgotPassword/../ProgramExport', 'ofbiz_scan'],   // the public PoC shape for the 2024 OFBiz RCE
+  ['/accounting/control/main', 'ofbiz_scan'],
+  ['/catalog/control/main', 'ofbiz_scan'],
+  ['/ecommerce/control/main', 'ofbiz_scan'],
+  ['/partymgr/control/main', 'ofbiz_scan'],
+  ['/ordermgr/control/main', 'ofbiz_scan'],
+  ['/myportal/control/main', 'ofbiz_scan'],
 ]) {
   const r = hit(p);
   ok(`${p} -> ${type}`, r && r.type === type && r.fake === 'admin' && !!r.product);
@@ -52,6 +62,7 @@ for (const [p, type] of [
 console.log('\nmust TRAP case-insensitively (scanners vary case):');
 ok('/Manager/HTML', (hit('/Manager/HTML') || {}).type === 'tomcat_scan');
 ok('/ZABBIX/', (hit('/ZABBIX/') || {}).type === 'zabbix_scan');
+ok('/WebTools/Control/Main', (hit('/WebTools/Control/Main') || {}).type === 'ofbiz_scan');
 
 console.log('\nmust NOT trap — our own surface and ordinary visitors:');
 for (const p of [
@@ -63,6 +74,9 @@ for (const p of [
   '/management', '/managers', '/manager-report',   // near-misses, not Tomcat
   '/debugging', '/debug', '/debug/',               // bare /debug is NOT a Yii probe
   '/nagios-report', '/zabbixing',
+  '/webtool', '/webtoolsx',                        // near-misses
+  '/accounting', '/accounting/reports', '/catalog', '/catalog/items', '/ecommerce', '/shop/control-panel',  // ordinary sites use these
+  '/control/main', '/admin/control',               // generic: not OFBiz-specific
 ]) {
   ok(`${p} does not trap`, hit(p) === null);
 }

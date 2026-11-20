@@ -212,6 +212,10 @@ SWEEP_SECRET_SHARE = "60"
 SWEEP_WINDOW_S = "60"
 HONEYPOTS_ENABLED = "true"
 FEED_HIT_REPORTING = "true"
+# Origin edge proof (2026-11-20): epstein.dugganusa.com's origin now sits behind a Cloudflare
+# Tunnel and proxies search to Meili; it requires this header on that route so only requests
+# that passed this Worker reach the database. Both hosts are DugganUSA origins.
+ORIGIN_EDGE_HOSTS = "analytics.dugganusa.com,epstein.dugganusa.com"
 SCHEMA_INJECT_HOSTS = "www.dugganusa.com,dugganusa.com,aipmsec.com"
 # 2.19.0 (2026-10-22): dugganusa.com is the owned surface; www belongs to Wix's Cloudflare account
 # at the edge. The apex serves posts and its sitemap from our renderer on analytics (Wix stays the

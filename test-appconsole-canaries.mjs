@@ -54,6 +54,19 @@ for (const [p, type] of [
   ['/partymgr/control/main', 'ofbiz_scan'],
   ['/ordermgr/control/main', 'ofbiz_scan'],
   ['/myportal/control/main', 'ofbiz_scan'],
+  // SAP NetWeaver (2.31.0): CVE-2025-42884 KEV 2026-11-20; CVE-2025-31324 Visual Composer; CVE-2020-6287 RECON. Zero prior in 30d.
+  ['/irj/portal', 'sap_netweaver_scan'],
+  ['/irj/servlet/prt/portal/prtroot/com.sap.portal.navigation.portallauncher.default', 'sap_netweaver_scan'],
+  ['/irj', 'sap_netweaver_scan'],
+  ['/nwa', 'sap_netweaver_scan'],
+  ['/nwa/sysinfo', 'sap_netweaver_scan'],
+  ['/developmentserver/metadatauploader', 'sap_netweaver_scan'],   // CVE-2025-31324
+  ['/CTC/servlet/ConfigServlet', 'sap_netweaver_scan'],            // CVE-2020-6287 RECON
+  ['/ctc/', 'sap_netweaver_scan'],
+  ['/webdynpro/dispatcher/sap.com/caf~eu~gp~example~timeoff~wd/ACreate', 'sap_netweaver_scan'],
+  ['/sap/bc/gui/sap/its/webgui', 'sap_netweaver_scan'],
+  ['/sap/public/info', 'sap_netweaver_scan'],
+  ['/sap/opu/odata/sap/', 'sap_netweaver_scan'],
 ]) {
   const r = hit(p);
   ok(`${p} -> ${type}`, r && r.type === type && r.fake === 'admin' && !!r.product);
@@ -63,6 +76,8 @@ console.log('\nmust TRAP case-insensitively (scanners vary case):');
 ok('/Manager/HTML', (hit('/Manager/HTML') || {}).type === 'tomcat_scan');
 ok('/ZABBIX/', (hit('/ZABBIX/') || {}).type === 'zabbix_scan');
 ok('/WebTools/Control/Main', (hit('/WebTools/Control/Main') || {}).type === 'ofbiz_scan');
+ok('/IRJ/Portal', (hit('/IRJ/Portal') || {}).type === 'sap_netweaver_scan');
+ok('/DevelopmentServer/MetadataUploader', (hit('/DevelopmentServer/MetadataUploader') || {}).type === 'sap_netweaver_scan');
 
 console.log('\nmust NOT trap — our own surface and ordinary visitors:');
 for (const p of [
@@ -77,6 +92,9 @@ for (const p of [
   '/webtool', '/webtoolsx',                        // near-misses
   '/accounting', '/accounting/reports', '/catalog', '/catalog/items', '/ecommerce', '/shop/control-panel',  // ordinary sites use these
   '/control/main', '/admin/control',               // generic: not OFBiz-specific
+  '/sap', '/sap/', '/sap-partners', '/sap/careers', '/sapphire',   // bare /sap is ordinary; only bc/public/opu trap
+  '/portal', '/portal/irj', '/irjx', '/nwaf', '/nwa-report',       // near-misses
+  '/ctcx', '/webdynprox', '/developmentservers',
 ]) {
   ok(`${p} does not trap`, hit(p) === null);
 }

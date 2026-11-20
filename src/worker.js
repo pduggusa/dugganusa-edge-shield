@@ -1312,6 +1312,17 @@ const APPCONSOLE_CANARIES = [
     exact: ['/webtools', '/webtools/control/main', '/webtools/control/programexport'],
     prefixes: ['/webtools/', '/accounting/control/', '/catalog/control/', '/ecommerce/control/', '/partymgr/control/',
                '/ordermgr/control/', '/myportal/control/'] },
+  // SAP NetWeaver (2.31.0, 2026-11-20). CISA added CVE-2025-42884 (Enterprise Portal 7.50 JNDI injection, no login,
+  // SAP Note 3660969 of 2025-11-11) to KEV on 2026-11-20, due 2026-11-23. SAP Java and ABAP front doors carry other KEV
+  // entries too: CVE-2025-31324 (Visual Composer /developmentserver/metadatauploader, mass-exploited April 2025) and
+  // CVE-2020-6287 RECON (/ctc/ LM configuration wizard). MEASURED FIRST: 0 matches for these shapes in 631,218 edge
+  // blocks, 103,551 canary hits and 693 origin captures, 2026-10-21 to 2026-11-20 (scripts/ttp-check.js), so the first
+  // hit will be real. COLLISION CHECKED: all eleven candidate paths 404 on www (Wix), analytics and aipmsec.com. Only
+  // SAP-specific shapes: bare /sap and /portal are NOT trapped; /sap/ is trapped only under bc/, public/ and opu/.
+  { type: 'sap_netweaver_scan', product: 'sap-netweaver',
+    exact: ['/irj', '/nwa', '/developmentserver/metadatauploader', '/ctc', '/webdynpro'],
+    prefixes: ['/irj/', '/nwa/', '/developmentserver/', '/ctc/', '/webdynpro/', '/sap/bc/', '/sap/public/',
+               '/sap/opu/'] },
 ];
 
 function getAppConsoleCanary(lower, withSlash) {

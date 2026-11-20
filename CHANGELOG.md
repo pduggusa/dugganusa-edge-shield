@@ -2,6 +2,21 @@
 
 All notable changes to DugganUSA Edge Shield are documented here.
 
+## 2.31.0 — 2026-11-20
+
+- **SAP NetWeaver canary.** CISA added CVE-2025-42884 (SAP NetWeaver Enterprise Portal 7.50 JNDI injection, no login
+  needed, fixed by SAP Note 3660969 on 2025-11-11) to KEV on 2026-11-20 with a 2026-11-23 due date. The Portal
+  (`/irj/`), NetWeaver Administrator (`/nwa`), Visual Composer (`/developmentserver/`, CVE-2025-31324), the LM
+  configuration wizard (`/ctc/`, CVE-2020-6287 RECON), Web Dynpro (`/webdynpro/`) and the ABAP ICF front doors
+  (`/sap/bc/`, `/sap/public/`, `/sap/opu/`) now answer the inert admin decoy and are recorded as `sap_netweaver_scan`.
+- **Measured first.** Zero matches for these shapes in 631,218 edge blocks, 103,551 canary hits and 693 origin
+  captures from 2026-10-21 to 2026-11-20, so the first hit will be real.
+- **Collisions checked.** All eleven candidate paths return 404 on the Wix site, the analytics host and aipmsec.com.
+  Bare `/sap` and `/portal` are deliberately NOT trapped. Like every app-console family it runs only where appliance
+  canaries are enabled (DugganUSA zones by default), so a customer with a real SAP portal behind the shield is
+  unaffected unless they opt in.
+- **Same response shape.** Reuses the existing admin decoy; no new fake-response code.
+
 ## 2.30.0 — 2026-11-06
 
 - **Apache OFBiz canary.** The Apache maintainers fixed 46 flaws on 2026-11-04, including CVE-2026-68524 (pre-auth

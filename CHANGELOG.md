@@ -2,6 +2,25 @@
 
 All notable changes to DugganUSA Edge Shield are documented here.
 
+## 2.32.0 — 2026-11-21
+
+- **IOC IP matching by value, not spelling.** Exact IPv6 indicators were compared as strings, so a
+  client address written differently from the feed row (upper case, expanded zeros, `::` in another
+  place) was never blocked. They now match by their 128-bit value. IPv4 matches by value too.
+  IPv4-mapped IPv6 (`::ffff:a.b.c.d`) matches the IPv4 row or CIDR it names, and a mapped feed row
+  (exact or `/96`-plus CIDR) also blocks the plain IPv4 client. A neighbor in the same /64 is still
+  not matched: exact rows never widen.
+- **Strict address parsers.** IPv4 octets must be 1-3 decimal digits (`0x10`, empty and
+  space-padded octets were accepted before); IPv6 groups must be 1-4 hex digits, at most one `::`,
+  a dotted quad only at the end, no zone id. The old IPv6 parser read `::ffff:1.2.3.4` as a wrong
+  value. Unparseable feed rows are no longer loaded, so `X-DugganUSA-IOCs` can drop slightly.
+- **Why now:** canary IPv6 indicators are kept off the Cloudflare IP list (Cloudflare widens list
+  items to /64, which would block co-tenants), so this Worker match is their only block on our zones.
+- Tests: new `test-ioc-ip-match.mjs` (24) and `test-ioc-ip-match-review.mjs` (44, independent review;
+  one accepted: a space inside a CIDR value is now rejected). All suites pass.
+- Known, unchanged: a `::/0` or `0.0.0.0/0` feed row would still match everything (feed hygiene);
+  feed-hit reports carry the client's spelling of a matched address.
+
 ## 2.31.0 — 2026-11-20
 
 - **SAP NetWeaver canary.** CISA added CVE-2025-42884 (SAP NetWeaver Enterprise Portal 7.50 JNDI injection, no login

@@ -513,6 +513,8 @@ async function isVerifiedCrawler(request, cf) {
 
 let iocCache = {
   ips: new Set(),
+  ips6: new Set(), // BigInt values of exact IPv6 IOCs (2.32.0): matched by value, not spelling
+  ips4: new Set(), // uint32 values of exact IPv4 IOCs: lets ::ffff:a.b.c.d match a.b.c.d
   cidrs4: [], // [{ base, mask }] — IPv4 CIDR blocks (shitlist /24s were INERT before 2026-07-10)
   cidrs6: [], // [{ base:BigInt, mask:BigInt }] — IPv6 CIDR blocks
   domains: new Set(),
@@ -581,7 +583,7 @@ async function doRefreshIOCs(apiKey, cfg) {
 
     if (ipsRes.ok) {
       const text = await ipsRes.text();
-      const ips = new Set(); const cidrs4 = []; const cidrs6 = [];
+      const ips = new Set(); const ips6 = new Set(); const ips4 = new Set(); const cidrs4 = []; const cidrs6 = [];
       for (const line of text.split('\n')) {
         if (line.startsWith('#') || line.startsWith('ip,')) continue;
         const ip = line.split(',')[0]?.trim();
@@ -589,9 +591,20 @@ async function doRefreshIOCs(apiKey, cfg) {
         if (ip.includes('/')) {           // CIDR (shitlist /24, ASN prefixes) — parse, don't drop
           const c = parseCidr(ip);
           if (c) (c.v6 ? cidrs6 : cidrs4).push(c);
-        } else { ips.add(ip); }
+          // A mapped v6 CIDR (::ffff:a.b.c.0/120) also covers the plain IPv4 clients it names.
+          if (c && c.v6 && mappedV4(c.base) !== null) {
+            const bits = parseInt(ip.split('/')[1], 10);
+            if (bits >= 96) { const b4 = bits - 96; const m4 = b4 === 0 ? 0 : (-1 << (32 - b4)) >>> 0;
+              cidrs4.push({ v6: false, base: (mappedV4(c.base) & m4) >>> 0, mask: m4 }); }
+          }
+        } else if (ip.includes(':')) {
+          const v = ipv6ToBigInt(ip);
+          if (v !== null) { ips.add(ip); ips6.add(v); const m = mappedV4(v); if (m !== null) ips4.add(m); }   // by value; mapped row also blocks its IPv4
+        } else {
+          const v = ipv4ToInt(ip); if (v !== null) { ips.add(ip); ips4.add(v); }     // only parseable rows
+        }
       }
-      iocCache.ips = ips; iocCache.cidrs4 = cidrs4; iocCache.cidrs6 = cidrs6;
+      iocCache.ips = ips; iocCache.ips6 = ips6; iocCache.ips4 = ips4; iocCache.cidrs4 = cidrs4; iocCache.cidrs6 = cidrs6;
     }
 
     if (domainsRes.ok) {
@@ -660,22 +673,39 @@ function scannerResponse(request, cf) {
 // ================================================================
 
 // --- CIDR support (added 2026-07-10 — shitlist /24s + ASN prefixes were inert before) ---
+// Strict parsers (2.32.0). The old ones accepted "0x10", "" and " 1" as IPv4 octets (unary +), groups
+// longer than 4 hex digits, more than one "::", and parsed "::ffff:1.2.3.4" (IPv4-mapped) to a wrong
+// value instead of handling it. They feed both exact and CIDR matching, so an unparseable value now
+// returns null (no match) rather than a wrong number.
 function ipv4ToInt(ip) {
+  if (typeof ip !== 'string') return null;
   const p = ip.split('.'); if (p.length !== 4) return null;
-  let n = 0; for (const o of p) { const x = +o; if (!(x >= 0 && x <= 255)) return null; n = (n << 8) + x; }
+  let n = 0;
+  for (const o of p) { if (!/^\d{1,3}$/.test(o)) return null; const x = Number(o); if (x > 255) return null; n = (n << 8) + x; }
   return n >>> 0;
 }
 function ipv6ToBigInt(ip) {
-  if (ip.indexOf(':') < 0) return null;
-  let [head, tail] = ip.split('::');
-  const h = head ? head.split(':').filter(Boolean) : [];
-  const t = tail !== undefined ? (tail ? tail.split(':').filter(Boolean) : []) : null;
+  if (typeof ip !== 'string' || ip.indexOf(':') < 0) return null;
+  let s = ip.trim().toLowerCase();
+  if (s.indexOf('%') >= 0) return null;                        // zone id: never a client address
+  const dotted = /^(.*:)(\d{1,3}(?:\.\d{1,3}){3})$/.exec(s);   // trailing IPv4 (mapped/compatible)
+  if (dotted) {
+    const v4 = ipv4ToInt(dotted[2]); if (v4 === null) return null;
+    s = dotted[1] + (v4 >>> 16).toString(16) + ':' + (v4 & 0xffff).toString(16);
+  }
+  const halves = s.split('::'); if (halves.length > 2) return null;
+  const head = halves[0] ? halves[0].split(':') : [];
+  const tail = halves.length === 2 ? (halves[1] ? halves[1].split(':') : []) : null;
+  if (!head.concat(tail || []).every((g) => /^[0-9a-f]{1,4}$/.test(g))) return null;
   let parts;
-  if (t === null) { parts = h; } else { parts = [...h, ...Array(8 - h.length - t.length).fill('0'), ...t]; }
+  if (tail === null) { parts = head; }
+  else { const fill = 8 - head.length - tail.length; if (fill < 1) return null; parts = [...head, ...Array(fill).fill('0'), ...tail]; }
   if (parts.length !== 8) return null;
-  let n = 0n; for (const x of parts) { const v = parseInt(x || '0', 16); if (isNaN(v)) return null; n = (n << 16n) + BigInt(v); }
+  let n = 0n; for (const g of parts) n = (n << 16n) + BigInt(parseInt(g, 16));
   return n;
 }
+// ::ffff:0:0/96 -> the embedded IPv4 as an int, else null.
+function mappedV4(v6) { return (v6 >> 32n) === 0xffffn ? Number(v6 & 0xffffffffn) >>> 0 : null; }
 function parseCidr(cidr) {
   const [base, bitsStr] = cidr.split('/'); const bits = parseInt(bitsStr, 10);
   if (isNaN(bits)) return null;
@@ -692,10 +722,20 @@ function checkIOC(ip) {
   if (iocCache.ips.has(ip)) return true;               // exact match (fast path)
   if (ip.includes(':')) {
     const v = ipv6ToBigInt(ip); if (v === null) return false;
+    // Exact IPv6 by VALUE, not spelling (2.32.0): "2001:DB8::1", "2001:db8:0:0::1" and the feed's
+    // "2001:db8::1" are one address. Canary IPv6 is kept off the Cloudflare list (it widens items to
+    // /64), so this match is the only block those hosts get on our zones.
+    if (iocCache.ips6.has(v)) return true;
+    const m4 = mappedV4(v);                            // ::ffff:a.b.c.d is that IPv4
+    if (m4 !== null) {
+      if (iocCache.ips4.has(m4)) return true;
+      for (const c of iocCache.cidrs4) if (((m4 & c.mask) >>> 0) === c.base) return true;
+    }
     for (const c of iocCache.cidrs6) if ((v & c.mask) === c.base) return true;
     return false;
   }
   const v = ipv4ToInt(ip); if (v === null) return false;
+  if (iocCache.ips4.has(v)) return true;               // by value too (a feed row "010.1.1.1" or a mapped row)
   for (const c of iocCache.cidrs4) if (((v & c.mask) >>> 0) === c.base) return true;
   return false;
 }

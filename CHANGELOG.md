@@ -2,6 +2,28 @@
 
 All notable changes to DugganUSA Edge Shield are documented here.
 
+## 2.33.0 — 2026-11-22
+
+- **Upload2Shell body tells (CVE-2026-125396).** A file named `.png`/`.jpg`/`.pdf` whose bytes are
+  actually PostScript, handed to an image/PDF pipeline that reaches Ghostscript, escapes `-dSAFER`
+  and runs commands. The canary body reader (`bodyTell`) now raises two tells on such an upload:
+  `postscript-masquerade` — the envelope claims `image/*` or `application/pdf` but the leading bytes
+  are PostScript (`%!` text header, the DOS-EPS binary header, or a `%%BoundingBox` DSC line), for
+  both raw-body and multipart uploads; and `ghostscript-sandbox-escape` — the executed operators
+  `.forceput` / `.putgstringcopy` / `%pipe%` / `GS_FORCEPUT`, which a hex-encoding WAF-evasion
+  variant cannot hide without breaking the chain. The structural tell is the mutation-resistant one:
+  for the ImageMagick path the PostScript envelope is load-bearing, so it does not depend on any
+  inner token.
+- **Telemetry only.** Like every body tell these label a canary hit; they are never a block reason,
+  and they fire only on decoy paths, never on real product uploads.
+- **Reviewed before ship.** Independent adversarial review (OWASP-stick) found and we fixed three
+  multipart false-negatives: bare-LF part separators (lenient PHP/WordPress/Roundcube accept them),
+  which had collapsed both tells at once; and an 8-byte body window that made `%%BoundingBox`
+  detection dead code. A second review round came back clean.
+- Tests: `test-payload-tells.mjs` grows to 22 (incl. REVIEW-A/A2/B regression guards). All suites pass.
+- Known, unchanged: `bodyTell` reads only the first 4096 bytes, so a large leading decoy field can
+  push the real part past the cap and blind every body tell equally.
+
 ## 2.32.0 — 2026-11-21
 
 - **IOC IP matching by value, not spelling.** Exact IPv6 indicators were compared as strings, so a

@@ -1563,7 +1563,86 @@ const PAYLOAD_MARKERS = [
   [/(?:;|%3b|\||%7c|`|\$\()\s*(?:cat|curl|wget|id|whoami|nc|sh|bash)\b/i, 'command-injection'],
   [/eval\(|base64_decode|system\(|passthru\(|shell_exec/i, 'code-exec-primitive'],
   [/\/etc\/passwd|\/var\/run\/secrets|id_rsa|\.aws\/credentials/i, 'credential-target'],
+  // The Ghostscript -dSAFER escape operators themselves (Upload2Shell / CVE-2026-125396). These
+  // are EXECUTED operators, not string literals, so the WAF-evasion variant that hex-encodes the
+  // %pipe% device and the GS_FORCEPUT key cannot hide them without breaking the chain. %pipe% is
+  // kept too for the un-obfuscated case. Structural masquerade detection (see postscriptMasquerade)
+  // is the mutation-resistant half; this literal tell corroborates on the direct-gs path.
+  [/%pipe%|\.forceput\b|\.putgstringcopy\b|GS_FORCEPUT/i, 'ghostscript-sandbox-escape'],
 ];
+
+// Raw-byte magic numbers for the files an image/PDF upload pipeline actually renders.
+const PS_TEXT_MAGIC = [0x25, 0x21];                      // "%!"  PostScript / EPS text header
+const EPS_BIN_MAGIC = [0xc5, 0xd0, 0xd3, 0xc6];          // DOS-EPS binary header
+const PDF_MAGIC     = [0x25, 0x50, 0x44, 0x46, 0x2d];    // "%PDF-" a genuine PDF
+const DSC_BBOX      = [0x25, 0x25, 0x42, 0x6f, 0x75, 0x6e, 0x64, 0x69, 0x6e, 0x67, 0x42, 0x6f, 0x78]; // "%%BoundingBox"
+const RASTER_EXT_RX = /\.(?:png|jpe?g|gif|webp|bmp|tiff?|heic|avif|pdf)$/i;
+
+function startsWith(bytes, magic, offset = 0) {
+  for (let i = 0; i < magic.length; i++) if (bytes[offset + i] !== magic[i]) return false;
+  return true;
+}
+// Does the content starting at `offset` (after ASCII whitespace) begin as PostScript/EPS, and NOT
+// as a genuine PDF? "%!"=PS/EPS text header, C5D0D3C6=DOS-EPS binary header, "%PDF-"=a real PDF.
+function leadingIsPostScript(bytes, offset) {
+  let i = offset;
+  while (i < bytes.length && (bytes[i] === 0x20 || bytes[i] === 0x09 || bytes[i] === 0x0a || bytes[i] === 0x0d)) i++;
+  if (startsWith(bytes, PDF_MAGIC, i)) return false;
+  return startsWith(bytes, PS_TEXT_MAGIC, i) || startsWith(bytes, EPS_BIN_MAGIC, i)
+    || startsWith(bytes, DSC_BBOX, i); // an EPS whose first line is the %%BoundingBox DSC comment
+}
+
+/**
+ * The mutation-resistant tell for Upload2Shell (CVE-2026-125396): the envelope claims to be a
+ * raster image or a PDF, but the bytes are PostScript. A real PNG/JPEG/PDF carries its own magic;
+ * PostScript starts with "%!" (text) or the EPS binary header. This does not depend on any inner
+ * token, so hex-encoding %pipe%/.forceput/the font program does not evade it — for the ImageMagick
+ * delivery path the PostScript envelope is load-bearing (that is what routes the file to gs).
+ *
+ * Two upload shapes:
+ *  - RAW body (content-type image/png, the file IS the body): check the leading bytes.
+ *  - MULTIPART form (content-type multipart/*, the file is a PART): find the part that DECLARES an
+ *    image/pdf filename or type, and check that part's body for a PostScript header. WordPress and
+ *    Roundcube — the shapes in the pwn.ai research — are multipart.
+ *
+ * Returns true only on a genuine MISMATCH. Honestly-declared PostScript (application/postscript, a
+ * .ps/.eps name) is not flagged. Residual (the 5%): a binary-EPS magic buried in a multipart part
+ * is not decoded to text here — but its executed operators (.forceput/.putgstringcopy) still trip
+ * the 'ghostscript-sandbox-escape' marker, which scans the whole decoded body. Layered on purpose.
+ */
+function postscriptMasquerade(raw, topType, text) {
+  if (!raw || raw.length < 2) return false;
+  const t = (topType || '').toLowerCase();
+
+  if (t.startsWith('image/') || t === 'application/pdf') {
+    return leadingIsPostScript(raw, 0); // raw-body upload: the file is the whole body
+  }
+
+  if (t.startsWith('multipart/') && typeof text === 'string') {
+    // For each form part, capture its header block (Content-Disposition + any following headers up
+    // to the blank line) and the first bytes of its body, then decide from the HEADER BLOCK whether
+    // the part declares an image/pdf, and from the BODY whether it begins as PostScript. Both lazy
+    // groups are bounded by the subject, which bodyTell caps at BODY_LIMIT — no backtrace surface.
+    // Separator is \r?\n\r?\n, NOT \r\n\r\n: lenient origin parsers (PHP/WordPress/Roundcube — the
+    // targets here) accept bare-LF multipart, and a hard CRLF match let an LF-only body evade the
+    // tell while still reaching gs. Window is 24 bytes so "%%BoundingBox" (13) and a whitespace-
+    // padded "%!" both fit; an 8-byte window made the BoundingBox branch dead code. (OWASP review
+    // findings A/A2/B, 2026-11-22.)
+    const partRx = /content-disposition:([^]*?)\r?\n\r?\n([^]{0,24})/gi;
+    for (let m; (m = partRx.exec(text)); ) {
+      const headers = m[1] || '';
+      const head = m[2] || '';
+      const fn = headers.match(/filename="([^"]{0,200})"/i);
+      const declaresImg = fn ? RASTER_EXT_RX.test(fn[1]) : false;
+      const typedImg = /content-type:\s*(?:image\/[^\s;]+|application\/pdf)/i.test(headers);
+      if ((declaresImg || typedImg) && /^\s*(?:%!|%%BoundingBox)/.test(head)
+          && !/^\s*%PDF-/.test(head)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
 
 // Markers found anywhere in the request line — path AND query. Decoding is attempted once so
 // an encoded payload is not invisible, but the raw form is tested too.
@@ -1625,6 +1704,9 @@ async function bodyTell(request, sampleOn) {
 
     const tells = [];
     for (const [rx, name] of PAYLOAD_MARKERS) if (rx.test(text)) tells.push(name);
+    // Structural, mutation-resistant: an image/PDF envelope carrying PostScript bytes is the
+    // Upload2Shell disguise (CVE-2026-125396), independent of any inner token obfuscation.
+    if (postscriptMasquerade(joined, ctype, text)) tells.push('postscript-masquerade');
 
     // Field NAMES only. urlencoded and multipart both yield names cheaply; JSON yields keys.
     const fields = new Set();

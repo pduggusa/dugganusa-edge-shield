@@ -24,8 +24,10 @@ const slice = (from, to) => {
 // safeDecode lives above; pull it in with the marker block.
 const code = slice('function safeDecode', '// How a secret probe arrived');
 const mod = await import('data:text/javascript,' + encodeURIComponent(
-  code + '\nexport { urlTells, bodyTell, PAYLOAD_MARKERS, SECRET_FIELD_RX };'));
-const { urlTells, bodyTell } = mod;
+  code + '\nexport { urlTells, bodyTell, PAYLOAD_MARKERS, SECRET_FIELD_RX, postscriptMasquerade };'));
+const { urlTells, bodyTell, postscriptMasquerade } = mod;
+const bytes = (...a) => Uint8Array.from(a);
+const ps = (s) => new TextEncoder().encode(s);
 
 let pass = 0, fail = 0;
 function test(name, fn) {
@@ -147,6 +149,126 @@ await test('the worker wires it in and flags carried_payload', async () => {
   }
   if (!/carried_payload: true/.test(src)) throw new Error('carried_payload flag missing');
   if (!/await bodyTell\(request/.test(src)) throw new Error('bodyTell must be awaited before the response closes');
+});
+
+// ---- Upload2Shell (CVE-2026-125396): PostScript-in-an-image masquerade --------------------
+const PNG = bytes(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a); // real PNG signature
+const EPSBIN = bytes(0xc5, 0xd0, 0xd3, 0xc6, 0x00, 0x01, 0x02, 0x03); // DOS-EPS binary header
+
+await test('masquerade: image/pdf envelope with PostScript bytes is flagged', () => {
+  eq(postscriptMasquerade(ps('%!PS-Adobe-3.0\n'), 'image/png', ''), true, 'PS text under image/png');
+  eq(postscriptMasquerade(ps('   %!PS\n'), 'image/jpeg', ''), true, 'leading whitespace still PS');
+  eq(postscriptMasquerade(EPSBIN, 'image/png', ''), true, 'EPS binary magic under image/png');
+  eq(postscriptMasquerade(ps('%!PS-Adobe\n'), 'application/pdf', ''), true, 'a .pdf that is actually PostScript');
+});
+
+await test('masquerade: a GENUINE image or pdf is never flagged (no false positive)', () => {
+  eq(postscriptMasquerade(PNG, 'image/png', ''), false, 'a real PNG');
+  eq(postscriptMasquerade(ps('%PDF-1.7\n%âãÏÓ'), 'application/pdf', ''), false, 'a real PDF is not PostScript');
+  eq(postscriptMasquerade(ps('GIF89a...'), 'image/gif', ''), false, 'a real GIF');
+  eq(postscriptMasquerade(ps(''), 'image/png', ''), false, 'empty body does not throw or flag');
+  eq(postscriptMasquerade(ps('%!PS'), 'application/postscript', ''), false, 'honestly-declared PostScript is not a masquerade');
+  eq(postscriptMasquerade(ps('%!PS'), 'text/plain', ''), false, 'PS under a non-image/pdf type is out of scope here');
+});
+
+await test('masquerade: MULTIPART form upload, the file is inside a part', () => {
+  const mk = (filename, partType, partBody) =>
+    `--B\r\nContent-Disposition: form-data; name="file"; filename="${filename}"\r\n` +
+    (partType ? `Content-Type: ${partType}\r\n` : '') + `\r\n${partBody}\r\n--B--\r\n`;
+  eq(postscriptMasquerade(ps(mk('report.png', 'image/png', '%!PS-Adobe-3.0\n')), 'multipart/form-data', mk('report.png', 'image/png', '%!PS-Adobe-3.0\n')), true, 'png-named part carrying PostScript');
+  eq(postscriptMasquerade(ps(mk('a.pdf', '', '%!PS\n')), 'multipart/form-data', mk('a.pdf', '', '%!PS\n')), true, 'pdf-named part by filename alone');
+  const real = mk('ok.png', 'image/png', '\x89PNG\r\n');
+  eq(postscriptMasquerade(ps(real), 'multipart/form-data', real), false, 'a real PNG part is not flagged');
+  const doc = mk('notes.txt', 'text/plain', '%!PS\n');
+  eq(postscriptMasquerade(ps(doc), 'multipart/form-data', doc), false, 'a .txt part is not an image/pdf claim');
+});
+
+await test('bodyTell wires the masquerade tell in (raw image upload)', async () => {
+  const img = new Request('https://x.test/wp-content/uploads/evil.php', {
+    method: 'POST', headers: { 'content-type': 'image/png' }, body: '%!PS-Adobe-3.0\n/Foo { } def\n',
+  });
+  const t = await bodyTell(img, false);
+  has(t.body_tells, 'postscript-masquerade', 'raw PS-as-PNG must raise the tell');
+  eq(t.body_type, 'image/png', 'the declared type is recorded alongside');
+});
+
+await test('MUTATION: the WAF-evasion variant still tells, two independent ways', async () => {
+  // repo A obfuscated variant: %! header stripped, %pipe% and GS_FORCEPUT hex-encoded. The
+  // EXECUTED operators (.forceput/.putgstringcopy) cannot be hidden and still fire the marker.
+  const obf = '% benign upload header\n<257069706525> cvn /CMD exch def\nsystemdict /x .putgstringcopy\n/T .forceput\n';
+  const t = await bodyTell(req('POST', 'application/octet-stream', obf), false);
+  has(t.body_tells, 'ghostscript-sandbox-escape', 'operators survive hex-obfuscation of %pipe%/GS_FORCEPUT');
+  eq(/%pipe%/.test(obf) || /GS_FORCEPUT/.test(obf), false, 'the literal tokens really are absent in this variant');
+
+  // and the ImageMagick-path variant (keeps %! to be routed to gs) trips the structural tell
+  const img = await bodyTell(req('POST', 'image/png', '%!PS-Adobe\n...'), false);
+  has(img.body_tells, 'postscript-masquerade', 'the envelope tell is independent of inner tokens');
+});
+
+await test('RESOURCE: masquerade detection is prompt on a pathological multipart body', () => {
+  // Many filename= decoys and long runs: the lazy groups are bounded and the input is <= 4 KB in
+  // bodyTell, but assert directly that the regex does not blow up on a 4 KB adversarial subject.
+  const hostile = ('Content-Disposition: form-data; filename="a.png"\r\n'.repeat(60) + 'A'.repeat(4096)).slice(0, 8192);
+  const start = Date.now();
+  for (let i = 0; i < 200; i++) postscriptMasquerade(ps(hostile), 'multipart/form-data', hostile);
+  const ms = Date.now() - start;
+  if (ms > 500) throw new Error(`200 iterations took ${ms}ms — possible ReDoS / superlinear scan`);
+});
+
+// ======================================================================================
+// ADVERSARIAL REVIEW 2026-11-22 — failing tests that assert the SAFE/correct behavior.
+// These document gaps in the Upload2Shell masquerade tell. They FAIL against the code as
+// shipped. Telemetry-only signal, so severities cap at medium.
+// ======================================================================================
+
+// FINDING A (medium) — multipart masquerade only recognizes CRLF part separators (\r\n\r\n).
+// Lenient origin parsers (PHP/WordPress/Roundcube, the exact targets named in the code's own
+// comment) accept bare-LF multipart. An attacker ships the identical PostScript-under-image
+// payload with LF line endings and the structural tell never fires. src/worker.js:1624.
+await test('REVIEW-A: multipart masquerade must detect PostScript with bare-LF part separators', () => {
+  const mkLF = (fn, pt, pb) =>
+    `--B\nContent-Disposition: form-data; name="file"; filename="${fn}"\n` +
+    (pt ? `Content-Type: ${pt}\n` : '') + `\n${pb}\n--B--\n`;
+  const mkCRLF = (fn, pt, pb) =>
+    `--B\r\nContent-Disposition: form-data; name="file"; filename="${fn}"\r\n` +
+    (pt ? `Content-Type: ${pt}\r\n` : '') + `\r\n${pb}\r\n--B--\r\n`;
+  const crlf = mkCRLF('report.png', 'image/png', '%!PS-Adobe-3.0\n');
+  const lf   = mkLF('report.png', 'image/png', '%!PS-Adobe-3.0\n');
+  eq(postscriptMasquerade(ps(crlf), 'multipart/form-data', crlf), true, 'CRLF variant (baseline) flags');
+  eq(postscriptMasquerade(ps(lf),   'multipart/form-data', lf),   true, 'LF-only variant must ALSO flag');
+});
+
+// FINDING A, cont. — the double evasion. The code claims two independent, layered tells
+// (structural masquerade + the .forceput/%pipe% operator marker). A single trivial change —
+// LF line endings in a multipart whose %! envelope is still present (required to route to gs)
+// with %pipe% hex-encoded — defeats BOTH at once, leaving ZERO tells. src/worker.js:1624,1571.
+await test('REVIEW-A2: bare-LF multipart + hex-obfuscated %pipe% must still raise a tell', async () => {
+  const mkLF = (fn, pt, pb) =>
+    `--B\nContent-Disposition: form-data; name="file"; filename="${fn}"\n` +
+    (pt ? `Content-Type: ${pt}\n` : '') + `\n${pb}\n--B--\n`;
+  const body = mkLF('report.png', 'image/png', '%!PS-Adobe-3.0\n<257069706525> cvn /CMD exch def\n');
+  const t = await bodyTell(req('POST', 'multipart/form-data; boundary=B', body), false);
+  if (!t.body_tells || !t.body_tells.length) {
+    throw new Error(`expected a tell (masquerade or ghostscript marker); got none: ${JSON.stringify(t.body_tells)}`);
+  }
+});
+
+// FINDING B (low-medium) — the body window ([^]{0,8}) is only 8 bytes, but the multipart
+// detector tests it against /^\s*(?:%!|%%BoundingBox)/. "%%BoundingBox" is 13 chars and can
+// NEVER fit in an 8-byte capture: that alternative is dead code, and it is the ONLY place the
+// token is referenced (leadingIsPostScript checks only %! / EPS-binary). Also, >6 bytes of
+// leading whitespace pushes %! out of the window, which the RAW path (unbounded ws skip)
+// catches but the multipart path does not. src/worker.js:1624,1631.
+await test('REVIEW-B: 8-byte head window makes %%BoundingBox detection unreachable and truncates padded %!', () => {
+  const mk = (fn, pb) =>
+    `--B\r\nContent-Disposition: form-data; name="file"; filename="${fn}"\r\n` +
+    `Content-Type: image/png\r\n\r\n${pb}\r\n--B--\r\n`;
+  const bb  = mk('art.png', '%%BoundingBox: 0 0 10 10\n%!PS\n');   // EPS that leads with the bbox comment
+  const pad = mk('art.png', '        %!PS\n');                      // 8 spaces, then %!
+  // Raw path (the intended parity) catches the padded case — multipart should too.
+  eq(postscriptMasquerade(ps('        %!PS\n'), 'image/png', ''), true, 'raw path catches whitespace-padded %!');
+  eq(postscriptMasquerade(ps(bb),  'multipart/form-data', bb),  true, '%%BoundingBox-led image part must flag');
+  eq(postscriptMasquerade(ps(pad), 'multipart/form-data', pad), true, 'whitespace-padded %! in a part must flag');
 });
 
 console.log(`\n${pass} passed, ${fail} failed`);

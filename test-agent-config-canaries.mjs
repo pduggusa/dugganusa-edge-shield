@@ -40,12 +40,26 @@ for (const p of ['/.claude/settings.json', '/.claude/settings.local.json', '/.cl
 }
 check('trapped paths use the inert decoy', getCanary('/.mcp.json').fake, 'agent_config');
 
+// 1b. 2.34.0: the rest of the public recon tool's agent-config and cloud-credential list.
+for (const p of ['/.windsurf/mcp.json', '/.codeium/windsurf/mcp_config.json', '/.gemini/settings.json',
+                 '/.continue/config.json', '/.continue/mcpServers/mcp.json', '/.codex/config.toml',
+                 '/.cline/mcp.json', '/.roo/mcp.json', '/.anthropic/config.json', '/.claude.json',
+                 '/.cursor.json', '/mcp_config.json', '/.windsurf', '/%2egemini/settings.json']) {
+  check(`traps ${p}`, kind(p), 'agent_config_probe');
+}
+for (const p of ['/.config/gcloud/application_default_credentials.json', '/application_default_credentials.json',
+                 '/gcp-credentials.json', '/.gcp/credentials.json', '/.huggingface/token', '/.cache/huggingface/token']) {
+  check(`traps ${p} as cloud_creds`, kind(p), 'cloud_creds');
+  check(`${p} answers the inert decoy, not a fabricated key`, getCanary(p).fake, 'agent_config');
+}
+
 // 2. Must NOT trap: what we or our customers legitimately serve.
 for (const p of ['/.well-known/mcp.json', '/.well-known/mcp', '/.well-known/mcp/server-card.json',
                  '/mcp', '/api/v1/mcp', '/api/v1/mcp/tools', '/llms.txt', '/jeevesus', '/membrane',
                  '/claude', '/claude.json', '/cursor/', '/docs/mcp.json', '/blog/mcp.json',
                  '/.vscode/settings.json', '/.vscode/launch.json',
-                 '/junie/mcp.json', '/amazonq/', '/docs/.junie/mcp.json', '/.windsurf/mcp.json', '/.gemini/settings.json']) {
+                 '/junie/mcp.json', '/amazonq/', '/docs/.junie/mcp.json', '/windsurf/mcp.json', '/gemini/settings.json',
+                 '/adc.json', '/config/gcloud/x', '/huggingface/token', '/docs/.gemini/settings.json']) {
   check(`does NOT trap ${p}`, kind(p), null);
 }
 

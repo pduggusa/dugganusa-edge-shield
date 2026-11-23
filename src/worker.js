@@ -793,6 +793,31 @@ const CANARY_PATHS = {
   '/.mcp.json':                  { type: 'agent_config_probe', fake: 'agent_config' },
   '/mcp.json':                   { type: 'agent_config_probe', fake: 'agent_config' },
   '/claude_desktop_config.json': { type: 'agent_config_probe', fake: 'agent_config' },
+  // 2.34.0 (2026-11-23): the "plausible siblings" above are no longer unmeasured. A public recon
+  // tool's sensitive-paths list (read as text, not run) requests these exact AI-client configs
+  // next to .env and cloud credentials, then parses any answer for "mcpServers" and extracts the
+  // keys. Our current traps cannot tell that tool's traffic from the others (its distinctive
+  // paths fell through to 404), so these are trapped to fingerprint which list is hitting us.
+  // Dot-directories and dot-files only: no legitimate use at a web root. NOT /claude.json (no dot).
+  '/.windsurf/':                 { type: 'agent_config_probe', fake: 'agent_config' },
+  '/.codeium/':                  { type: 'agent_config_probe', fake: 'agent_config' },
+  '/.gemini/':                   { type: 'agent_config_probe', fake: 'agent_config' },
+  '/.continue/':                 { type: 'agent_config_probe', fake: 'agent_config' },
+  '/.codex/':                    { type: 'agent_config_probe', fake: 'agent_config' },
+  '/.cline/':                    { type: 'agent_config_probe', fake: 'agent_config' },
+  '/.roo/':                      { type: 'agent_config_probe', fake: 'agent_config' },
+  '/.anthropic/':                { type: 'agent_config_probe', fake: 'agent_config' },
+  '/.claude.json':               { type: 'agent_config_probe', fake: 'agent_config' },
+  '/.cursor.json':               { type: 'agent_config_probe', fake: 'agent_config' },
+  '/mcp_config.json':            { type: 'agent_config_probe', fake: 'agent_config' },
+  // Same list, cloud and model-hub credentials. Answered with the same INERT decoy (no key of
+  // any shape), never a fabricated credential: the visit is the intel, not what they take away.
+  '/.config/gcloud/':            { type: 'cloud_creds', fake: 'agent_config' },
+  '/application_default_credentials.json': { type: 'cloud_creds', fake: 'agent_config' },
+  '/gcp-credentials.json':       { type: 'cloud_creds', fake: 'agent_config' },
+  '/.gcp/':                      { type: 'cloud_creds', fake: 'agent_config' },
+  '/.huggingface/':              { type: 'cloud_creds', fake: 'agent_config' },
+  '/.cache/huggingface/':        { type: 'cloud_creds', fake: 'agent_config' },
 
   // WordPress — we don't run WP, any hit is recon
   '/wp-admin/':                  { type: 'wordpress_scan', fake: 'wp' },

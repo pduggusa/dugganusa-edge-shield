@@ -2,6 +2,19 @@
 
 All notable changes to DugganUSA Edge Shield are documented here.
 
+## 2.34.0 — 2026-11-23
+
+- **More AI-client and cloud-credential config canaries.** A public recon tool's sensitive-paths
+  list requests AI-client configs (Windsurf/Codeium, Gemini, Continue, Codex, Cline, Roo, Anthropic,
+  `.claude.json`, `.cursor.json`, `mcp_config.json`) next to `.env` and cloud credentials, then
+  parses any answer for `mcpServers` and extracts keys. The 2.25.x traps covered `.claude/`,
+  `.cursor/`, `.junie/`, `.amazonq/`, `.vscode/mcp.json`, `.mcp.json`, `mcp.json` and
+  `claude_desktop_config.json`; these additions let the edge tell which list is probing.
+  `agent_config_probe` gains 11 paths; `cloud_creds` gains gcloud application-default credentials,
+  `gcp-credentials.json`, `.gcp/` and the Hugging Face token paths. All answer the existing inert
+  decoy (a reserved `.invalid` host, no command, no key of any shape). Dot-paths only: none has a
+  legitimate use at a web root. Tests: `test-agent-config-canaries.mjs` 89/89.
+
 ## 2.33.0 — 2026-11-22
 
 - **Upload2Shell body tells (CVE-2026-125396).** A file named `.png`/`.jpg`/`.pdf` whose bytes are

@@ -4,6 +4,9 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    # Never propose a release younger than 14 days (supply-chain cooldown; matches our pinning rule).
+    cooldown:
+      default-days: 14
     groups:
       actions:
         patterns: ["*"]
@@ -11,6 +14,9 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    # Never propose a release younger than 14 days (supply-chain cooldown; matches our pinning rule).
+    cooldown:
+      default-days: 14
     open-pull-requests-limit: 5
     groups:
       npm-minor-patch:

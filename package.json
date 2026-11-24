@@ -5,7 +5,9 @@
   "main": "src/worker.js",
   "scripts": {
     "deploy": "wrangler deploy",
-    "dev": "wrangler dev"
+    "dev": "wrangler dev",
+    "lint": "for f in src/*.js test-*.mjs scripts/*.js scripts/*.mjs; do [ -e \"$f\" ] || continue; node --check \"$f\" || exit 1; done",
+    "test": "for f in test-*.mjs; do echo \"== $f\"; node \"$f\" || exit 1; done"
   },
   "keywords": [
     "cloudflare",
@@ -21,5 +23,13 @@
   "license": "MIT",
   "devDependencies": {
     "wrangler": "^4.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/pduggusa/dugganusa-edge-shield.git"
+  },
+  "homepage": "https://github.com/pduggusa/dugganusa-edge-shield#readme",
+  "bugs": {
+    "url": "https://github.com/pduggusa/dugganusa-edge-shield/issues"
   }
 }

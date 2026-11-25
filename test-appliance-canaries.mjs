@@ -20,8 +20,8 @@ const slice = (from, to) => {
 };
 const code = slice('const CANARY_PATHS', 'function honeypotResponse');
 const mod = await import('data:text/javascript,' + encodeURIComponent(
-  code + '\nexport { getCanary, getApplianceCanary, applianceCanariesEnabled, netscalerResponse, fortigateResponse, ivantiResponse, ciscoResponse, paloResponse, sonicwallResponse, silentTrainResponse, getSecretProbe, secretProbeResponse, secretProbeVia, safeDecode };'));
-const { getCanary, getApplianceCanary, applianceCanariesEnabled, netscalerResponse, fortigateResponse, ivantiResponse, ciscoResponse, paloResponse, sonicwallResponse, silentTrainResponse, getSecretProbe, secretProbeResponse, secretProbeVia } = mod;
+  code + '\nexport { getCanary, getApplianceCanary, applianceCanariesEnabled, netscalerResponse, fortigateResponse, checkpointResponse, ivantiResponse, ciscoResponse, paloResponse, sonicwallResponse, silentTrainResponse, getSecretProbe, secretProbeResponse, secretProbeVia, safeDecode };'));
+const { getCanary, getApplianceCanary, applianceCanariesEnabled, netscalerResponse, fortigateResponse, checkpointResponse, ivantiResponse, ciscoResponse, paloResponse, sonicwallResponse, silentTrainResponse, getSecretProbe, secretProbeResponse, secretProbeVia } = mod;
 
 // The same precedence the fetch handler uses.
 const pick = (env, host, path) =>
@@ -295,6 +295,41 @@ check('Versa UI decoy answers 200', silentTrainResponse('versa-director', '/vers
 // No vendor assets are copied — the decoy is our own minimal markup.
 check('Versa decoy copies no vendor asset URLs', !/versa-networks\.com|\.versa\.com/.test(await stBody('versa-director', '/versa/')), true);
 
+
+// ---- Check Point (2026-11-25, 2.35.0): GT13 / CVE-2026-16232 recon surface on web ports ----
+for (const [p, prod, ex] of [
+  ['/cpmws/LoginSvcRemote', 'checkpoint-management', true],
+  ['/cpmws/PerformanceTestSvcRemote', 'checkpoint-management', true],
+  ['/web_api/login', 'checkpoint-management', false],
+  ['/web_api/v1.9/show-session', 'checkpoint-management', false],
+  ['/smartview/', 'checkpoint-management', false],
+  ['/cgi-bin/home.tcl', 'checkpoint-gaia-portal', false],
+  ['/cgi-bin/login.tcl', 'checkpoint-gaia-portal', false],
+  ['/clients/MyCRL', 'checkpoint-gateway', true],
+  ['/sslvpn/Login/Login', 'checkpoint-gateway', false],
+  ['/%63pmws/LoginSvcRemote', 'checkpoint-management', true],
+]) {
+  const c = pick({}, 'analytics.dugganusa.com', p);
+  check(`own zone traps Check Point ${p}`, kind(c), 'checkpoint_scan');
+  check(`Check Point product ${p}`, c && c.product, prod);
+  check(`Check Point exploit marker ${p}`, !!(c && c.exploit_path), ex);
+}
+check('encoded Check Point path flagged', !!getApplianceCanary('/%63pmws/LoginSvcRemote').encoded_path, true);
+check('customer Check Point NOT trapped by default', kind(pick({}, 'mgmt.customer.example', '/web_api/login')), null);
+for (const p of ['/web_apis', '/cgi-bin/', '/cgi-bin/test.cgi', '/clients/', '/sslvpn/', '/smartviewer', '/cpm/', '/api/v1/web_api']) {
+  check(`not a Check Point trap: ${p}`, kind(pick({}, 'www.dugganusa.com', p)) === 'checkpoint_scan', false);
+}
+{
+  const s = checkpointResponse('/cpmws/loginsvcremote');
+  check('cpmws answers a SOAP fault', s.status, 500);
+  check('cpmws is XML', /xml/.test(s.headers.get('content-type')), true);
+  const w = checkpointResponse('/web_api/login');
+  check('web_api answers 401 JSON', w.status, 401);
+  check('web_api JSON parses', !!JSON.parse(await w.text()).code, true);
+  const g = await checkpointResponse('/cgi-bin/login.tcl').text();
+  check('Gaia decoy posts to a trapped path', g.includes('action="/cgi-bin/home.tcl"'), true);
+  check('Gaia decoy copies no vendor asset URLs', !/checkpoint\.com/.test(g), true);
+}
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

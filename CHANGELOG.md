@@ -2,6 +2,20 @@
 
 All notable changes to DugganUSA Edge Shield are documented here.
 
+## 2.35.0 — 2026-11-25
+
+- **Check Point canaries.** GreyNoise's GT13 report (2026-11-23) has an actor driving 24 Check Point
+  Security Management servers through CVE-2026-16232 (SmartConsole auth bypass, sk185169, CISA KEV
+  2026-07-22), and our edge recorded zero Check Point-shaped requests, because we run no Check Point.
+  New appliance canaries (own zones by default, `APPLIANCE_CANARIES` for customers): `/cpmws/`
+  (the bypass's SOAP stage), `/web_api/`, `/smartview/`, the Gaia portal (`/cgi-bin/home.tcl`,
+  `/cgi-bin/login.tcl`), and the gateway's `/clients/MyCRL` (CVE-2024-24919) and `/sslvpn/Login/`.
+  `/cpmws/` and `/clients/MyCRL` carry `exploit_path`; products are tagged management, Gaia portal or
+  gateway. Decoys: a SOAP fault, the management API's JSON error, or a minimal portal login whose form
+  posts to a trapped path.
+- **Stated limit:** the CVE-2026-16232 chain itself runs over CPMI (TCP 18190) and SOAP on TCP 19009.
+  Neither reaches a Worker, so this sees the web-port sweep around it, not the exploit.
+
 ## 2.34.0 — 2026-11-23
 
 - **More AI-client and cloud-credential config canaries.** A public recon tool's sensitive-paths

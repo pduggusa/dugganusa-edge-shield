@@ -1140,6 +1140,28 @@ const FORTINET_CANARY_PREFIXES = ['/remote/', '/api/v2/cmdb/', '/api/v2/monitor/
 const FORTINET_CANARY_EXACT = new Set(['/remote/login', '/remote/logincheck', '/remote/fgt_lang']);
 
 // ================================================================
+// APPLIANCE CANARIES — Check Point management + gateway web surface (2026-11-25, 2.35.0)
+// ================================================================
+// GreyNoise (GT13, 2026-11-23): an actor drove 24 Check Point Security Management servers at 22
+// organizations with CVE-2026-16232 (SmartConsole application-token auth bypass, sk185169, KEV
+// 2026-07-22). ttp-check 2026-11-25: zero Check Point-shaped hits; we run no Check Point, so that
+// zero was blindness, same as Fortinet and PeopleSoft before their canaries.
+// HONEST LIMIT: Rapid7's PoC (sfewer-r7) runs the bypass over CPMI on TCP 18190 and then SOAP on
+// TCP 19009 (/cpmws/<Service>). Neither port reaches a Cloudflare Worker, so this canary cannot see
+// the 16232 chain itself. It sees the HTTP surface scanners sweep on 443: /cpmws/ when tried on a
+// web port, the management web API (/web_api/), SmartView, the Gaia portal, and the gateway's
+// /clients/MyCRL (CVE-2024-24919, KEV) and Mobile Access /sslvpn/ portal. exploit_path marks
+// /cpmws/ (the 16232 SOAP stage) and /clients/MyCRL (the 24919 file read).
+const CHECKPOINT_CANARY_PREFIXES = ['/cpmws/', '/web_api/', '/smartview/', '/sslvpn/login/', '/clients/mycrl/'];
+const CHECKPOINT_CANARY_EXACT = new Set(['/cgi-bin/home.tcl', '/cgi-bin/login.tcl', '/clients/mycrl', '/sslvpn/login/login']);
+const CHECKPOINT_EXPLOIT_PREFIXES = ['/cpmws/', '/clients/mycrl'];
+function checkpointProduct(lower) {
+  if (lower.startsWith('/cpmws/') || lower.startsWith('/web_api/') || lower.startsWith('/smartview/')) return 'checkpoint-management';
+  if (lower.startsWith('/cgi-bin/')) return 'checkpoint-gaia-portal';
+  return 'checkpoint-gateway';
+}
+
+// ================================================================
 // APPLIANCE CANARIES — Oracle PeopleSoft (2026-10-12, 2.8.0)
 // ================================================================
 // ShinyHunters (GTIG: UNC6240) is mass-exploiting CVE-2026-35273 in the PeopleSoft
@@ -1467,6 +1489,12 @@ function getApplianceCanary(path) {
     if (FORTINET_CANARY_EXACT.has(lower) ||
         FORTINET_CANARY_PREFIXES.some(pre => withSlash.startsWith(pre))) {
       return { type: 'fortinet_scan', fake: 'fortigate', product: 'fortinet-fortigate' };
+    }
+    if (CHECKPOINT_CANARY_EXACT.has(lower) ||
+        CHECKPOINT_CANARY_PREFIXES.some(pre => withSlash.startsWith(pre))) {
+      const exploit = CHECKPOINT_EXPLOIT_PREFIXES.some(pre => withSlash.startsWith(pre));
+      return { type: 'checkpoint_scan', fake: 'checkpoint', product: checkpointProduct(lower),
+        ...(exploit ? { exploit_path: true } : {}), ...(encoded ? { encoded_path: true } : {}) };
     }
     const appConsole = getAppConsoleCanary(lower, withSlash);
     if (appConsole) return { ...appConsole, ...(encoded ? { encoded_path: true } : {}) };
@@ -1815,6 +1843,21 @@ function netscalerResponse() {
 
 // Minimal original markup: an SSL-VPN login that posts where FortiOS posts. No Fortinet
 // assets are copied. The cookie name is what scanners key on to confirm a FortiGate.
+// Check Point decoy: SOAP fault for /cpmws/, the management API's JSON error for /web_api/, a
+// minimal portal login page otherwise. Original markup, no Check Point assets.
+function checkpointResponse(lower) {
+  if (lower.startsWith('/cpmws/')) {
+    const fault = `<?xml version="1.0" encoding="UTF-8"?><soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"><soap:Body><soap:Fault><faultcode>soap:Client</faultcode><faultstring>Session is not valid</faultstring></soap:Fault></soap:Body></soap:Envelope>`;
+    return new Response(fault, { status: 500, headers: { 'Content-Type': 'text/xml; charset=utf-8', 'Cache-Control': 'no-store' } });
+  }
+  if (lower.startsWith('/web_api/')) {
+    return new Response(JSON.stringify({ code: 'generic_err_wrong_session_id', message: 'Wrong session id [].' }),
+      { status: 401, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
+  }
+  const body = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Check Point Gaia</title></head><body><form action="/cgi-bin/home.tcl" method="post" autocomplete="off"><label for="userName">User Name</label><input type="text" id="userName" name="userName"><label for="password">Password</label><input type="password" id="password" name="password"><button type="submit">Log In</button></form></body></html>`;
+  return new Response(body, { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } });
+}
+
 function fortigateResponse() {
   const body = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Please Login</title></head><body><div class="login"><form action="/remote/logincheck" method="post" autocomplete="off"><label for="username">Username</label><input type="text" id="username" name="username"><label for="credential">Password</label><input type="password" id="credential" name="credential"><input type="hidden" name="realm" value=""><button type="submit">Login</button></form></div></body></html>`;
   return new Response(body, {
@@ -2082,6 +2125,7 @@ function honeypotResponse(request, cf, canary) {
   if (canary.fake === 'sonicwall') return sonicwallResponse(new URL(request.url).pathname.toLowerCase());
   if (canary.fake === 'netscaler') return netscalerResponse();
   if (canary.fake === 'fortigate') return fortigateResponse();
+  if (canary.fake === 'checkpoint') return checkpointResponse(new URL(request.url).pathname.toLowerCase());
   if (canary.fake === 'peoplesoft') return peoplesoftResponse();
   if (canary.fake === 'sharepoint') return sharepointResponse();
   if (canary.fake === 'ivanti') return ivantiResponse();

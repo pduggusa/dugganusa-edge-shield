@@ -21,10 +21,13 @@ All notable changes to DugganUSA Edge Shield are documented here.
   403 and never files). A real page files nothing, an edge decoy files only its own canary record, a
   secret-file probe is never filed. Never for a verified crawler, never on a SENSOR host, and never for
   a request that looks INDUCED: OPTIONS, any `Sec-Fetch-Site` other than `none` (a browser request a
-  page started, such as an `<img>`), any Cloudflare-verified bot of any category, and the user agents
-  of link previewers, AI assistant fetchers and mail link scanners. One filing per IP (IPv6: per /64)
-  and path per isolate per 24 h; at most 4 per IPv4 /24 or IPv6 /48 per isolate per day (checked
-  first), and at most 60 per isolate per minute overall. The response is unchanged.
+  page started, such as an `<img>`), an `Accept` asking for an image and not HTML, Apple Mail and
+  in-app web views (AppleWebKit with no `Safari/` token and no Sec-Fetch), any Cloudflare-verified bot
+  of any category, and the user agents of link previewers, AI assistant fetchers, mail link scanners,
+  mail image proxies and desktop mail clients. One filing per IP (IPv6: per /64) and path per isolate
+  per 24 h; at most 4 per IPv4 /24 or IPv6 /48 and 12 per IPv4 /16 or IPv6 /32 per isolate per day
+  (checked first; a full tracking map refuses rather than resets), and at most 60 per isolate per
+  minute overall. The response is unchanged.
 - **At what weight.** Confidence **25**, source `edge-harvested-trap`, `malware_family`
   `harvested-trap:<CVE>`, `threat_type` `harvested-trap-probe`, via the same `/threat-intel/honeypot`
   ingest canaries use (key-checked; the server's protected-IP guard skips operator addresses). 25 is
@@ -45,8 +48,10 @@ All notable changes to DugganUSA Edge Shield are documented here.
   `<img>` on someone else's page), so a trap record says a request ARRIVED from that address, not that
   its owner meant it. Both are why the confidence sits below every floor and why nothing promotes it.
   Shared egress (a corporate NAT, a mobile CGNAT, a cloud fetcher) can carry an innocent's request.
-  An actor holding many distinct /24s or /48s can still spend an isolate's 60-per-minute budget and
-  suppress other filings there for up to a minute. Every induced-request signal (Sec-Fetch headers,
+  An actor holding many unrelated networks (a residential proxy pool) can still spend an isolate's
+  60-per-minute budget and suppress other filings there for up to a minute. A plain-`http://` browser
+  load sends no Sec-Fetch headers; whether the zone's HTTPS redirect runs before the Worker was not
+  verified. Every induced-request signal (Sec-Fetch headers,
   user agent) is client-controlled, so a scanner can dress as a browser or a previewer to avoid the
   trap; that costs only a sub-floor record. Our own-route exclusion on the server is a static list of
   today's mounts; the 404/410 rule is what keeps an auth-gated route from filing if that list drifts.
@@ -60,8 +65,13 @@ All notable changes to DugganUSA Edge Shield are documented here.
   each proved by a failing test: (F1, high) one induced request made enrichment answer
   `shouldBlock: true` / `suspicious`; (F2) two GitHub owners could trap one of our own 401 routes;
   (F3) trap docs could crowd the newest-N windows of ips.csv and the STIX bundle; (F4) one actor could
-  spend the shared per-minute budget. All four are fixed as described above; the proof tests are kept
-  in `test-trap-review.mjs` (12/12) and the analytics repo's `tests/unit/harvested-trap-review.test.js`.
+  spend the shared per-minute budget. All four were fixed. The re-review of the fixes found R1 (high:
+  the enrichment SUMMARY verdict still read "suspicious"; the first proof test had passed vacuously),
+  R2 (correlate said `single-lane` with no caveat), R3 (per-net map clear() reset every cap; one /32
+  could still spend the global budget), R4 (mail image loads without Sec-Fetch) and R5 (our own 410
+  routes `/v2`, `/brain`). All five are fixed as described above. Proof tests are kept in
+  `test-trap-review.mjs` (12/12), `test-trap-rereview.mjs` (11/11) and the analytics repo's
+  `tests/unit/harvested-trap-review.test.js` and `harvested-trap-rereview.test.js`.
 - Tests: `test-harvested-observe.mjs` 73/73 (36 new: list parse back-compat, gating, IP literal,
   dedupe and per-net and global bounds, status rule, induced-request screen, doc shape, and the full
   handler: files on 404/410, never on 200/401/403, decoy, secret probe, verified crawler or previewer,

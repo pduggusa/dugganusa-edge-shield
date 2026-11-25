@@ -305,8 +305,10 @@ console.log('trap (units)');
     eq(T.harvestedTrapFirst('45.138.12.32', '/p', 1000 + 25 * 3600e3), true);
   });
   t('a rotating-address flood is bounded per isolate per minute (60, all nets)', () => {
-    let filed = 0; for (let i = 0; i < 200; i++) if (T.harvestedTrapFirst(`10.9.${i}.1`, '/f', 9e9)) filed++;
+    let filed = 0; for (let i = 0; i < 200; i++) if (T.harvestedTrapFirst(`${10 + (i >> 8)}.${i & 255}.0.1`, '/f', 9e9)) filed++;
     eq(filed, 60);
+    let wide = 0; for (let i = 0; i < 100; i++) if (T.harvestedTrapFirst(`2001:db9:${i.toString(16)}::1`, '/w', 9e9 + 120000 + i)) wide++;
+    eq(wide, 12); // one IPv6 /32 (or IPv4 /16) files at most 12 a day across all its /48s
     eq(T.harvestedTrapFirst('10.10.10.10', '/f', 9e9 + 61000), true);
   });
   t('one IPv6 /48 (or IPv4 /24) files at most 4 per day, and cannot spend the shared budget', () => {
@@ -328,6 +330,9 @@ console.log('trap (units)');
     eq(T.trapLooksInduced(r({ 'user-agent': 'python-requests/2.31' }), {}), false);
     eq(T.trapLooksInduced(r({ 'user-agent': 'Mozilla/5.0 Chrome/125', 'sec-fetch-site': 'none' }), {}), false);
     eq(T.trapLooksInduced(r({}, 'OPTIONS'), {}), true);
+    eq(T.trapLooksInduced(r({ 'user-agent': 'Mozilla/5.0 Chrome/125', accept: 'image/avif,image/webp,*/*' }), {}), true);
+    eq(T.trapLooksInduced(r({ 'user-agent': 'Mozilla/5.0 (Macintosh) AppleWebKit/605.1.15 (KHTML, like Gecko)' }), {}), true); // Apple Mail
+    eq(T.trapLooksInduced(r({ 'user-agent': 'Mozilla/5.0 (Macintosh) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15', 'sec-fetch-site': 'none' }), {}), false);
     for (const site of ['cross-site', 'same-site', 'same-origin']) eq(T.trapLooksInduced(r({ 'user-agent': 'Mozilla/5.0', 'sec-fetch-site': site }), {}), true, site);
     eq(T.trapLooksInduced(r({ 'user-agent': 'x' }), { verifiedBotCategory: 'Page Preview' }), true);
     for (const ua of ['Slackbot-LinkExpanding 1.0', 'Mozilla/5.0 (compatible; Discordbot/2.0)', 'Claude-User/1.0', 'ChatGPT-User/1.0', 'facebookexternalhit/1.1', 'Proofpoint URL Defense'])

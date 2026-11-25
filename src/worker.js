@@ -2165,7 +2165,12 @@ const HARVESTED_TRAP_PER_MIN = 60; // per isolate, all sources: the last bound o
 const HARVESTED_TRAP_PER_NET_DAY = 4; // per isolate per IPv4 /24 or IPv6 /48 per day, checked FIRST
 // (OWASP review of f5864ec, F3/F4): one actor rotating addresses inside a /48 used to fill the global
 // budget and crowd out everyone else; now it spends its own net's 4 and the global budget is untouched.
-const HARVESTED_TRAP_NET_MAX = 5000;
+// Full map: expired nets are evicted oldest-first; if none has expired the filing is REFUSED (re-review
+// R3b: a clear() let an actor churning 5,000 nets reset every cap). Fails closed: a missed sub-floor record.
+const HARVESTED_TRAP_NET_MAX = 20000;
+// Second tier (re-review R3a): at most 12 per IPv4 /16 or IPv6 /32 per isolate per day, so one actor's
+// allocation cannot spend the global per-minute budget either; it takes many unrelated networks now.
+const HARVESTED_TRAP_PER_WIDE_DAY = 12;
 
 // Which answers count (review F2): a 404 or 410 from the origin (the path is not served here) or the
 // edge's own scanner 418. NOT 401/403/405/429/5xx: an auth-gated real route answers 401 or 403, and a
@@ -2180,13 +2185,27 @@ function trapStatusCounts(status, edgeScanner418) {
 // page; "none" = typed or bookmarked); any Cloudflare-verified bot of any category; and the user agents
 // of previewers, assistant fetchers and mail scanners. All of this is client-controlled, so a scanner
 // can dress up to evade the trap; that costs us only a sub-floor record, which is the right way round.
-const TRAP_INDUCED_UA = /slackbot|slack-imgproxy|discordbot|telegrambot|whatsapp|facebookexternalhit|facebot|twitterbot|linkedinbot|skypeuripreview|teams|microsoftpreview|pinterest|redditbot|embedly|iframely|bitlybot|google-inspectiontool|googleother|feedfetcher|claude-user|claude-searchbot|chatgpt-user|oai-searchbot|perplexity-user|mistralai-user|meta-externalfetcher|duckassistbot|youbot|proofpoint|mimecast|barracuda|safelinks|symantec|trendmicro|ironport|forcepoint|zscaler|urldefense/i;
+const TRAP_INDUCED_UA = /slackbot|slack-imgproxy|discordbot|telegrambot|whatsapp|facebookexternalhit|facebot|twitterbot|linkedinbot|skypeuripreview|teams|microsoftpreview|pinterest|redditbot|embedly|iframely|bitlybot|google-inspectiontool|googleother|feedfetcher|claude-user|claude-searchbot|chatgpt-user|oai-searchbot|perplexity-user|mistralai-user|meta-externalfetcher|duckassistbot|youbot|proofpoint|mimecast|barracuda|safelinks|symantec|trendmicro|ironport|forcepoint|zscaler|urldefense|googleimageproxy|yahoomailproxy|microsoft outlook|microsoft office|ms-office|outlook-iphone|outlook-android|thunderbird|apple-mail|applemail/i;
 function trapLooksInduced(request, cf) {
   if (String(request.method || '').toUpperCase() === 'OPTIONS') return true;
   const site = request.headers.get('sec-fetch-site');
   if (site !== null && site.trim().toLowerCase() !== 'none') return true;
   if (cfVerifiedCategory(cf)) return true;
-  return TRAP_INDUCED_UA.test(request.headers.get('user-agent') || '');
+  // An image request (an <img> in a page or an HTML email, including clients that send no Sec-Fetch
+  // headers: Apple Mail, Outlook desktop, mail image proxies) asks for image/* and not HTML.
+  const accept = String(request.headers.get('accept') || '').toLowerCase();
+  if (accept.includes('image/') && !accept.includes('text/html')) return true;
+  const ua = request.headers.get('user-agent') || '';
+  // Apple Mail and in-app web views: AppleWebKit with no "Safari/" token and no Sec-Fetch headers
+  // (re-review R4d). Every real Safari/Chrome/Edge UA carries "Safari/".
+  if (site === null && /applewebkit\//i.test(ua) && !/safari\//i.test(ua)) return true;
+  return TRAP_INDUCED_UA.test(ua);
+}
+
+function trapWideKey(ip) {
+  const s = String(ip || '').toLowerCase();
+  if (!s.includes(':')) { const o = s.split('.'); return o.length === 4 ? `w${o[0]}.${o[1]}.0.0/16` : 'w' + s; }
+  return 'w' + trapIpKey(s).split(':').slice(0, 2).join(':') + '::/32';
 }
 
 function trapNetKey(ip) {
@@ -2242,16 +2261,26 @@ function harvestedTrapFirst(ip, path, now = Date.now()) {
   const key = `${trapIpKey(ip)}|${path}`;
   const t = harvestedTrapSeen.get(key);
   if (t && now - t < HARVESTED_TRAP_DEDUPE_MS) return false;
-  const net = trapNetKey(ip);
-  let nb = harvestedTrapNets.get(net);
-  if (!nb || now - nb.start >= HARVESTED_TRAP_DEDUPE_MS) nb = { start: now, n: 0 };
-  if (nb.n >= HARVESTED_TRAP_PER_NET_DAY) return false;
+  // Both tiers share one map (keys differ: '/24' '/48' vs 'w…/16' 'w…/32').
+  const tiers = [[trapNetKey(ip), HARVESTED_TRAP_PER_NET_DAY], [trapWideKey(ip), HARVESTED_TRAP_PER_WIDE_DAY]];
+  const buckets = [];
+  for (const [net, cap] of tiers) {
+    let nb = harvestedTrapNets.get(net);
+    if (!nb || now - nb.start >= HARVESTED_TRAP_DEDUPE_MS) {
+      harvestedTrapNets.delete(net); // re-inserted below, so Map order stays oldest-start first
+      nb = { start: now, n: 0 };
+      if (harvestedTrapNets.size >= HARVESTED_TRAP_NET_MAX) {
+        for (const [k, v] of harvestedTrapNets) { if (now - v.start >= HARVESTED_TRAP_DEDUPE_MS) harvestedTrapNets.delete(k); else break; }
+        if (harvestedTrapNets.size >= HARVESTED_TRAP_NET_MAX) return false;
+      }
+    }
+    if (nb.n >= cap) return false;
+    buckets.push([net, nb]);
+  }
   if (now - harvestedTrapWindow.start >= 60000) harvestedTrapWindow = { start: now, n: 0 };
   if (harvestedTrapWindow.n >= HARVESTED_TRAP_PER_MIN) return false;
   harvestedTrapWindow.n++;
-  nb.n++;
-  if (!harvestedTrapNets.has(net) && harvestedTrapNets.size >= HARVESTED_TRAP_NET_MAX) harvestedTrapNets.clear();
-  harvestedTrapNets.set(net, nb);
+  for (const [net, nb] of buckets) { nb.n++; harvestedTrapNets.set(net, nb); }
   if (harvestedTrapSeen.size >= HARVESTED_TRAP_SEEN_MAX) harvestedTrapSeen.clear();
   harvestedTrapSeen.set(key, now);
   return true;

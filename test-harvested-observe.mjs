@@ -277,11 +277,12 @@ console.log('trap (units)');
       const p = T.parseHarvestedList(JSON.stringify({ ...base, trap })); eq(p.map.size, 122); eq(p.trap.size, 0);
     }
   });
-  t('trap gating: own zones by default, customer zone off unless opted in, false and HONEYPOTS_ENABLED=false turn it off', () => {
+  t('trap gating: own zones only (no customer opt-in), false and HONEYPOTS_ENABLED=false turn it off', () => {
     eq(T.harvestedTrapEnabled({}, 'www.dugganusa.com'), true);
     eq(T.harvestedTrapEnabled({}, 'www.example.com'), false);
     eq(T.harvestedTrapEnabled({}, 'dugganusa.com.evil.net'), false);
-    eq(T.harvestedTrapEnabled({ HARVESTED_TRAP: 'true' }, 'www.example.com'), true);
+    eq(T.harvestedTrapEnabled({ HARVESTED_TRAP: 'true' }, 'www.example.com'), false); // scope cut (round 6): no customer opt-in
+    eq(T.harvestedTrapEnabled({ HARVESTED_TRAP: 'true' }, 'dugganusa.com.evil.net'), false);
     eq(T.harvestedTrapEnabled({ HARVESTED_TRAP: 'false' }, 'www.dugganusa.com'), false);
     eq(T.harvestedTrapEnabled({ HONEYPOTS_ENABLED: 'false' }, 'www.dugganusa.com'), false);
     eq(T.harvestedTrapEnabled({ HONEYPOTS_ENABLED: 'false', HARVESTED_TRAP: 'true' }, 'www.example.com'), false);
@@ -426,7 +427,7 @@ console.log('trap (full handler)');
   t('a Cloudflare-verified link previewer files nothing', () => eq(traps(preview).length, 0));
   t('a harvested path NOT in the trap set files nothing (observation only)', () => { eq(traps(observeOnly).length, 0); eq(observeOnly.posted.length, 1); });
   t('a verified crawler never files', () => eq(traps(crawler).length, 0));
-  t('a customer zone never files unless opted in', () => { eq(traps(customer).length, 0); eq(traps(customerIn).length, 1); });
+  t('a customer zone never files, even with HARVESTED_TRAP=true', () => { eq(traps(customer).length, 0); eq(traps(customerIn).length, 0); });
   t('HARVESTED_TRAP=false and HONEYPOTS_ENABLED=false turn it off on our own zone', () => { eq(traps(trapOff).length, 0); eq(traps(hpOff).length, 0); });
   t('an edge decoy (200) files the canary record only, never a trap record', () => {
     eq(traps(decoy).length, 0); eq(decoy.honey.filter(d => d.source === 'edge-honeypot').length, 1); eq(decoy.res.status, 200);

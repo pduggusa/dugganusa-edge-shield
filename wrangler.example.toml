@@ -116,13 +116,8 @@ HONEYPOTS_ENABLED = "false"
 # Unset = DugganUSA zones only. "true" opts your zones in; "false" turns it off.
 # HARVESTED_OBSERVE = "true"
 
-# Harvested-path TRAP (2.36.0): on a narrow subset of those paths (CVE in CISA KEV, path listed by
-# PoCs from at least two GitHub owners), a probe your site answers with HTTP 404/410 sends the
-# VISITOR IP, User-Agent, ASN and country to DugganUSA, filed at confidence 25: below every default
-# blocking and publishing floor, so one hit never blocks anyone. Personal data under GDPR, like the
-# honeypots. Unset = DugganUSA zones only. "true" opts your zones in; "false" turns it off.
-# HONEYPOTS_ENABLED = "false" also turns it off.
-# HARVESTED_TRAP = "true"
+# Harvested-path TRAP (2.36.0) runs on DugganUSA's own zones only. There is no customer setting:
+# on your zones it never sends anything (HARVESTED_TRAP does not opt a customer zone in).
 
 # When a feed indicator matches, report it back to DugganUSA's feed-efficacy axis.
 # PRIVACY CONTRACT: sends ONLY the indicator we published (the attacker IP), the

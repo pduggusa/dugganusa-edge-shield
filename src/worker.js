@@ -2155,8 +2155,9 @@ function harvestedFirstInWindow(key, now = Date.now()) {
 // ENRICHABLE but blocks nothing and publishes nothing at default floors. Operator IPs are skipped by the
 // server's protected-IP guard on the same ingest route canaries use. The response is never changed.
 //
-// SCOPE: our own zones by default (HARVESTED_TRAP unset); "true" opts a customer zone in, "false" turns it
-// off everywhere. HONEYPOTS_ENABLED="false" also turns it off (it sends a visitor IP, like a canary).
+// SCOPE: DugganUSA's own zones ONLY. There is no customer opt-in: the ingest accepts only our own key, so a
+// customer zone would send visitor data for no result (OWASP round 6). HARVESTED_TRAP="false" turns it off;
+// HONEYPOTS_ENABLED="false" also turns it off (it sends a visitor IP, like a canary).
 const HARVESTED_TRAP_CONFIDENCE = 25;
 const HARVESTED_TRAP_SOURCE = 'edge-harvested-trap';
 const HARVESTED_TRAP_DEDUPE_MS = 24 * 3600 * 1000;
@@ -2220,9 +2221,8 @@ function trapNetKey(ip) {
 
 function harvestedTrapEnabled(env, hostname) {
   if (String(env.HONEYPOTS_ENABLED ?? 'true').toLowerCase() === 'false') return false;
-  const flag = String(env.HARVESTED_TRAP ?? '').toLowerCase();
-  if (flag === 'false') return false;
-  if (flag === 'true') return true;
+  if (String(env.HARVESTED_TRAP ?? '').toLowerCase() === 'false') return false;
+  // Own zones only, whatever HARVESTED_TRAP says: "true" does NOT opt a customer zone in.
   const host = String(hostname || '').toLowerCase();
   return APPLIANCE_OWN_ZONES.some(z => host === z || host.endsWith('.' + z));
 }

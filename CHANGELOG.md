@@ -44,8 +44,10 @@ All notable changes to DugganUSA Edge Shield are documented here.
   exclusions added in earlier rounds stay as defense in depth. The Worker is unchanged by this: it logs
   only the ingest's HTTP status (now 200, or 202 when the write is not confirmed, or 400 for a non-IP).
   (The design brief suggested 45; 45 would have shipped in the default STIX bundle, whose floor is 30.)
-- **Scope.** DugganUSA zones by default (`HARVESTED_TRAP` unset); `"true"` opts a customer zone in,
-  `"false"` turns it off; `HONEYPOTS_ENABLED="false"` also turns it off (it sends a visitor IP).
+- **Scope.** DugganUSA's own zones ONLY. There is no customer opt-in: the ingest accepts only our own
+  key, so on a customer zone it would send a visitor's IP, User-Agent and ASN for no result (OWASP round 6).
+  `HARVESTED_TRAP="false"` turns it off on our zones; `HONEYPOTS_ENABLED="false"` also turns it off.
+  `wrangler.example.toml` documents that there is nothing for a customer to set.
 - **Stated limits.** The list is built from public GitHub repos, so two sockpuppet accounts on a KEV
   CVE can add a trap path; and any probe can be INDUCED (a link previewer, a prompt-injected fetcher, an
   `<img>` on someone else's page), so a trap record says a request ARRIVED from that address, not that
@@ -88,6 +90,32 @@ All notable changes to DugganUSA Edge Shield are documented here.
   exclude unpromoted sources. Regression test here: `test-trap-induced-gaps.mjs` (13/13). Proof tests are kept in
   `test-trap-review.mjs` (12/12), `test-trap-rereview.mjs` (11/11) and the analytics repo's
   `tests/unit/harvested-trap-review.test.js` and `harvested-trap-rereview.test.js`.
+- **Round 6 (server side, analytics):**
+  - The ingest routes on ANY trap marker, not on the source string alone: `honeypot_meta.harvested_trap`,
+    a `harvested-trap:` family, the `harvested-trap` tag, an `htrap-` id, or the `harvested-trap-probe`
+    threat type. A doc with trap markers and a non-trap source is refused (400).
+  - The admin `POST /threat-intel/iocs` route now uses the `/admin/iocs/ingest` source allowlist, refuses
+    unpromoted sources and protected addresses, and compares its key in constant time.
+  - `trap_observations` writes:
+    - one doc per canonical address (RFC 5952 IPv6; IPv4-mapped stored as IPv4; other dotted-in-IPv6
+      forms refused) and CVE, under an injective id;
+    - writes to one id are serialized;
+    - only a 404 means "no record yet": any other read error writes nothing;
+    - at most 16 trap writes in flight per process, beyond which the ingest answers 503 with Retry-After;
+    - a pending settings task is never re-PATCHed.
+  - Side-field lookups have a wall-clock deadline and run for IP indicators only. Store errors are never
+    echoed.
+  - Trap-list owners count only if their PoC passed the harvester's screen (`poc_screened`); GitHub's
+    reserved namespaces never count.
+- **Accepted residuals (stated, not fixed):**
+  - Two REPLICAS writing the same id in the same moment can lose one count increment.
+  - A burst past 16 in-flight writes per process is shed: those hits are not recorded. The worker never
+    retries.
+  - Trap lists built from rules harvested before 2026-11-24 (no `poc_screened`) are smaller until the
+    harvester re-screens them. That is the conservative direction.
+  - The per-isolate tracking map fails closed for up to 24 h once full.
+  - Typed or clicked navigations (`Sec-Fetch-Site: none`) cannot be screened as induced.
+  - The trap path list is readable with any registered key, so a scanner can learn which paths to avoid.
 - Tests: `test-harvested-observe.mjs` 73/73 (36 new: list parse back-compat, gating, IP literal,
   dedupe and per-net and global bounds, status rule, induced-request screen, doc shape, and the full
   handler: files on 404/410, never on 200/401/403, decoy, secret probe, verified crawler or previewer,

@@ -24,7 +24,10 @@ All notable changes to DugganUSA Edge Shield are documented here.
   page started, such as an `<img>`), an `Accept` asking for an image and not HTML, Apple Mail and
   in-app web views (AppleWebKit with no `Safari/` token and no Sec-Fetch), any Cloudflare-verified bot
   of any category, and the user agents of link previewers, AI assistant fetchers, mail link scanners,
-  mail image proxies and desktop mail clients. One filing per IP (IPv6: per /64) and path per isolate
+  mail image proxies, desktop mail clients and fediverse/chat previewers (Mastodon and other http.rb
+  fetchers, Bluesky Cardyb, Matrix Synapse, Mattermost, Zoom, KakaoTalk, Discourse, Nextcloud), and a
+  Safari/WebKit or Firefox user agent with no Sec-Fetch headers whose `Accept` does not ask for HTML
+  (an `<script>`/`<iframe>`/`<img>` subresource in an older browser). One filing per IP (IPv6: per /64) and path per isolate
   per 24 h; at most 4 per IPv4 /24 or IPv6 /48 and 12 per IPv4 /16 or IPv6 /32 per isolate per day
   (checked first; a full tracking map refuses rather than resets), and at most 60 per isolate per
   minute overall. The response is unchanged.
@@ -51,7 +54,12 @@ All notable changes to DugganUSA Edge Shield are documented here.
   An actor holding many unrelated networks (a residential proxy pool) can still spend an isolate's
   60-per-minute budget and suppress other filings there for up to a minute. A plain-`http://` browser
   load sends no Sec-Fetch headers; whether the zone's HTTPS redirect runs before the Worker was not
-  verified. Every induced-request signal (Sec-Fetch headers,
+  verified. **A typed or clicked navigation (`Sec-Fetch-Site: none`) cannot be screened**: a URL pasted
+  into a public scanner (urlscan.io-style headless Chrome) or clicked in a message looks exactly like a
+  person typing it, so it files a sub-floor, unpromoted record. **The per-network tracking map fails
+  closed:** once 20,000 /24, /48, /16 and /32 buckets are live in one isolate, new networks are refused
+  (nothing filed) until the oldest buckets expire, up to 24 h. An actor with that many networks can
+  blind the trap in that isolate; it cannot make it file more. Every induced-request signal (Sec-Fetch headers,
   user agent) is client-controlled, so a scanner can dress as a browser or a previewer to avoid the
   trap; that costs only a sub-floor record. Our own-route exclusion on the server is a static list of
   today's mounts; the 404/410 rule is what keeps an auth-gated route from filing if that list drifts.
@@ -69,7 +77,15 @@ All notable changes to DugganUSA Edge Shield are documented here.
   the enrichment SUMMARY verdict still read "suspicious"; the first proof test had passed vacuously),
   R2 (correlate said `single-lane` with no caveat), R3 (per-net map clear() reset every cap; one /32
   could still spend the global budget), R4 (mail image loads without Sec-Fetch) and R5 (our own 410
-  routes `/v2`, `/brain`). All five are fixed as described above. Proof tests are kept in
+  routes `/v2`, `/brain`). All five are fixed as described above. A third round found M1 (medium-high:
+  the MISP feed faceted every `iocs` source and would have published `edge-harvested-trap` as a
+  DugganUSA event), W1 (fediverse/chat previewers and old-browser subresources still filed), C1 (an
+  unpromoted record counted as a correlate lane) and L1 (two lead-claim scripts treated the `edge-`
+  prefix as first-party). Fixed: every publisher (ips.csv, STIX bundle, MISP, OPNsense, detection
+  rules, behavioral scorer) now derives its exclusion from one shared set in the analytics app
+  (`lib/publish-exclusions.js`, driven by ioc-match `UNPROMOTED_SOURCES`); the screens above; a
+  separate `iocs_unpromoted` correlate lane that never counts toward strength; both lead scripts
+  exclude unpromoted sources. Regression test here: `test-trap-induced-gaps.mjs` (13/13). Proof tests are kept in
   `test-trap-review.mjs` (12/12), `test-trap-rereview.mjs` (11/11) and the analytics repo's
   `tests/unit/harvested-trap-review.test.js` and `harvested-trap-rereview.test.js`.
 - Tests: `test-harvested-observe.mjs` 73/73 (36 new: list parse back-compat, gating, IP literal,

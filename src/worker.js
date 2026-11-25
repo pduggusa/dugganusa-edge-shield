@@ -2185,7 +2185,7 @@ function trapStatusCounts(status, edgeScanner418) {
 // page; "none" = typed or bookmarked); any Cloudflare-verified bot of any category; and the user agents
 // of previewers, assistant fetchers and mail scanners. All of this is client-controlled, so a scanner
 // can dress up to evade the trap; that costs us only a sub-floor record, which is the right way round.
-const TRAP_INDUCED_UA = /slackbot|slack-imgproxy|discordbot|telegrambot|whatsapp|facebookexternalhit|facebot|twitterbot|linkedinbot|skypeuripreview|teams|microsoftpreview|pinterest|redditbot|embedly|iframely|bitlybot|google-inspectiontool|googleother|feedfetcher|claude-user|claude-searchbot|chatgpt-user|oai-searchbot|perplexity-user|mistralai-user|meta-externalfetcher|duckassistbot|youbot|proofpoint|mimecast|barracuda|safelinks|symantec|trendmicro|ironport|forcepoint|zscaler|urldefense|googleimageproxy|yahoomailproxy|microsoft outlook|microsoft office|ms-office|outlook-iphone|outlook-android|thunderbird|apple-mail|applemail/i;
+const TRAP_INDUCED_UA = /slackbot|slack-imgproxy|discordbot|telegrambot|whatsapp|facebookexternalhit|facebot|twitterbot|linkedinbot|skypeuripreview|teams|microsoftpreview|pinterest|redditbot|embedly|iframely|bitlybot|google-inspectiontool|googleother|feedfetcher|claude-user|claude-searchbot|chatgpt-user|oai-searchbot|perplexity-user|mistralai-user|meta-externalfetcher|duckassistbot|youbot|proofpoint|mimecast|barracuda|safelinks|symantec|trendmicro|ironport|forcepoint|zscaler|urldefense|googleimageproxy|yahoomailproxy|microsoft outlook|microsoft office|ms-office|outlook-iphone|outlook-android|thunderbird|apple-mail|applemail|http\.rb|mastodon|pleroma|akkoma|misskey|cardyb|bluesky|synapse|mattermost|zoom(?!eye)|kakaotalk|discourse|nextcloud/i;
 function trapLooksInduced(request, cf) {
   if (String(request.method || '').toUpperCase() === 'OPTIONS') return true;
   const site = request.headers.get('sec-fetch-site');
@@ -2199,6 +2199,10 @@ function trapLooksInduced(request, cf) {
   // Apple Mail and in-app web views: AppleWebKit with no "Safari/" token and no Sec-Fetch headers
   // (re-review R4d). Every real Safari/Chrome/Edge UA carries "Safari/".
   if (site === null && /applewebkit\//i.test(ua) && !/safari\//i.test(ua)) return true;
+  // Round 3 (W1): a Safari/WebKit or Firefox UA with NO Sec-Fetch headers (Safari < 16.4, older Firefox)
+  // that does not ask for HTML is a subresource load (<script src>, <iframe>, <img>) a page started.
+  const noSecFetch = site === null && request.headers.get('sec-fetch-mode') === null && request.headers.get('sec-fetch-dest') === null;
+  if (noSecFetch && /applewebkit\/|safari\/|firefox\//i.test(ua) && !/chrome\/|chromium\/|edg\//i.test(ua) && !accept.includes('text/html')) return true;
   return TRAP_INDUCED_UA.test(ua);
 }
 

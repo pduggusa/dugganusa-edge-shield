@@ -2140,7 +2140,7 @@ function harvestedFirstInWindow(key, now = Date.now()) {
 // CVE is in CISA KEV and which PoCs from >= 2 distinct GitHub owners list for that CVE, fabricated-PoC
 // owners excluded, our own routes excluded. The bundled fallback list has no trap set.
 //
-// WHEN: only after the response is known and only if it is >= 400 (the INVARIANT in the default export):
+// WHEN: only after the response is known and only if it is a 404/410 or the edge scanner 418 (stricter than the INVARIANT in the default export):
 // a planted path that is one of our real pages returns real content and files nothing. Never on an edge
 // decoy (the canary files its own record) and never on a secret-file probe (never indexed, 2.13.2).
 // Never for a verified crawler. Never on a SENSOR host (LAYER -2 returns first). After the OWASP review
@@ -3088,7 +3088,7 @@ export default {
   // no visitor data is kept: list poisoning and ordinary traffic cannot become observations,
   // whatever the harvest contains (security review of c554cd08, after three rounds of cases).
   //
-  // The harvested TRAP (2.36.0) is stricter than the observation: >= 400 ONLY. A decoy answer (the canary
+  // The harvested TRAP (2.36.0) is stricter than the observation: 404/410 or the edge scanner 418 ONLY (trapStatusCounts). A decoy answer (the canary
   // files its own record) and a secret-file probe (never indexed) file nothing here, and neither does any
   // response with real content. The response object is returned untouched in every case.
   async fetch(request, env, ctx) {

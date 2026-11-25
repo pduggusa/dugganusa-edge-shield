@@ -33,17 +33,17 @@ All notable changes to DugganUSA Edge Shield are documented here.
   minute overall. The response is unchanged.
 - **At what weight.** Confidence **25**, source `edge-harvested-trap`, `malware_family`
   `harvested-trap:<CVE>`, `threat_type` `harvested-trap-probe`, via the same `/threat-intel/honeypot`
-  ingest canaries use (key-checked; the server's protected-IP guard skips operator addresses). 25 is
-  below the STIX bundle default (30), the ips.csv default (50) and the edge and Cloudflare-list floor
-  (80), so one hit is recorded and enrichable but blocks nothing and is absent from every default feed
-  pull. A consumer who asks for `min_confidence` <= 25 does get it. The analytics side also caps this
-  source at 25, and its source is not `edge-honeypot`, so the canary_ips lane, Spamhaus/ThreatFox
-  contribution and first-party lead lanes never read it. The ips.csv, STIX bundle, OPNsense and
-  behavioral-scorer reads exclude the source inside their queries, so trap records neither publish at
-  any dial nor crowd real indicators out of a newest-N window. Enrichment, correlate and the MCP
-  `enrich-ioc` tool answer it as `unpromoted`: recorded once, not in any published feed, no score
-  points, never a block recommendation, never "affected". (The design brief suggested 45; 45 would have
-  shipped in the default STIX bundle, whose floor is 30.)
+  ingest canaries use (key-checked; the server's protected-IP guard skips operator addresses).
+  **Stored apart (server side):** the analytics ingest routes this source to its own internal index,
+  `trap_observations`, never `iocs`: one doc per IP and CVE with a count and first/last seen, bare IPs
+  only, confidence capped at 25. Four review rounds each found another `iocs` reader (MISP, enrichment
+  summary, correlate, CIDR coverage, Tor scoring, feed-hit credit, the exact-query window) that a record
+  in `iocs` bent; keeping it out of `iocs` is the invariant that ends that. Nothing publishes, scores,
+  matches or blocks from `trap_observations`. Enrichment and correlate show it only as a
+  `recorded_unpromoted` side field ({count, first_seen, last_seen, published:false}). The publisher
+  exclusions added in earlier rounds stay as defense in depth. The Worker is unchanged by this: it logs
+  only the ingest's HTTP status (now 200, or 202 when the write is not confirmed, or 400 for a non-IP).
+  (The design brief suggested 45; 45 would have shipped in the default STIX bundle, whose floor is 30.)
 - **Scope.** DugganUSA zones by default (`HARVESTED_TRAP` unset); `"true"` opts a customer zone in,
   `"false"` turns it off; `HONEYPOTS_ENABLED="false"` also turns it off (it sends a visitor IP).
 - **Stated limits.** The list is built from public GitHub repos, so two sockpuppet accounts on a KEV

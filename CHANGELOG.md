@@ -16,10 +16,15 @@ All notable changes to DugganUSA Edge Shield are documented here.
   The worker accepts a trap entry only if its path is on the validated list with that CVE. The field
   is additive: older workers ignore it, and a list without it (or with a malformed one) gives an empty
   trap, never a rejected list. The bundled fallback list has no trap set.
-- **When.** After the response is known, and only if it is HTTP >= 400 (the 2.17.0 INVARIANT, made
-  stricter): a real page files nothing, an edge decoy files only its own canary record, a secret-file
-  probe is never filed. Never for a verified crawler, never on a SENSOR host. One filing per IP (IPv6:
-  per /64) and path per isolate per 24 h, at most 20 per isolate per minute. The response is unchanged.
+- **When.** After the response is known, and only if it is a **404 or 410** from the origin or the
+  edge's own scanner 418 (stricter than the 2.17.0 INVARIANT: an auth-gated real route answers 401 or
+  403 and never files). A real page files nothing, an edge decoy files only its own canary record, a
+  secret-file probe is never filed. Never for a verified crawler, never on a SENSOR host, and never for
+  a request that looks INDUCED: OPTIONS, any `Sec-Fetch-Site` other than `none` (a browser request a
+  page started, such as an `<img>`), any Cloudflare-verified bot of any category, and the user agents
+  of link previewers, AI assistant fetchers and mail link scanners. One filing per IP (IPv6: per /64)
+  and path per isolate per 24 h; at most 4 per IPv4 /24 or IPv6 /48 per isolate per day (checked
+  first), and at most 60 per isolate per minute overall. The response is unchanged.
 - **At what weight.** Confidence **25**, source `edge-harvested-trap`, `malware_family`
   `harvested-trap:<CVE>`, `threat_type` `harvested-trap-probe`, via the same `/threat-intel/honeypot`
   ingest canaries use (key-checked; the server's protected-IP guard skips operator addresses). 25 is
@@ -27,7 +32,11 @@ All notable changes to DugganUSA Edge Shield are documented here.
   (80), so one hit is recorded and enrichable but blocks nothing and is absent from every default feed
   pull. A consumer who asks for `min_confidence` <= 25 does get it. The analytics side also caps this
   source at 25, and its source is not `edge-honeypot`, so the canary_ips lane, Spamhaus/ThreatFox
-  contribution and first-party lead lanes never read it. (The design brief suggested 45; 45 would have
+  contribution and first-party lead lanes never read it. The ips.csv, STIX bundle, OPNsense and
+  behavioral-scorer reads exclude the source inside their queries, so trap records neither publish at
+  any dial nor crowd real indicators out of a newest-N window. Enrichment, correlate and the MCP
+  `enrich-ioc` tool answer it as `unpromoted`: recorded once, not in any published feed, no score
+  points, never a block recommendation, never "affected". (The design brief suggested 45; 45 would have
   shipped in the default STIX bundle, whose floor is 30.)
 - **Scope.** DugganUSA zones by default (`HARVESTED_TRAP` unset); `"true"` opts a customer zone in,
   `"false"` turns it off; `HONEYPOTS_ENABLED="false"` also turns it off (it sends a visitor IP).
@@ -36,16 +45,27 @@ All notable changes to DugganUSA Edge Shield are documented here.
   `<img>` on someone else's page), so a trap record says a request ARRIVED from that address, not that
   its owner meant it. Both are why the confidence sits below every floor and why nothing promotes it.
   Shared egress (a corporate NAT, a mobile CGNAT, a cloud fetcher) can carry an innocent's request.
-  The per-isolate rate bound can be spent by a flood to suppress other filings in that isolate for up
-  to a minute. Operator protection is server-side only (protected-IP set); the Worker has no list.
+  An actor holding many distinct /24s or /48s can still spend an isolate's 60-per-minute budget and
+  suppress other filings there for up to a minute. Every induced-request signal (Sec-Fetch headers,
+  user agent) is client-controlled, so a scanner can dress as a browser or a previewer to avoid the
+  trap; that costs only a sub-floor record. Our own-route exclusion on the server is a static list of
+  today's mounts; the 404/410 rule is what keeps an auth-gated route from filing if that list drifts.
+  Operator protection is server-side only (protected-IP set); the Worker has no list.
 - **Promotion is NOT built.** A later rule could raise a trap record's confidence only on independent
   corroboration, for example the same address on >= 2 distinct trap CVEs across >= 2 days (harder to
   induce than one), or a recent listing in a vetted lane (URLhaus, SSLBL, Feodo) for the exact address.
   Crowd lanes alone (ThreatFox submissions, tweets) must not qualify: they are poisonable the same way
   this list is. Any promoter ships disarmed and with its own review.
-- Tests: `test-harvested-observe.mjs` 67/67 (30 new: list parse back-compat, gating, IP literal,
-  dedupe and flood bound, doc shape, and the full handler: files on 404/401, never on 200, decoy,
-  secret probe, verified crawler, customer zone, sensor host, spoofed forwarding headers; bytes unchanged).
+- **Independent OWASP review** (of f5864ec plus the analytics commit) found 1 high, 2 medium, 1 low,
+  each proved by a failing test: (F1, high) one induced request made enrichment answer
+  `shouldBlock: true` / `suspicious`; (F2) two GitHub owners could trap one of our own 401 routes;
+  (F3) trap docs could crowd the newest-N windows of ips.csv and the STIX bundle; (F4) one actor could
+  spend the shared per-minute budget. All four are fixed as described above; the proof tests are kept
+  in `test-trap-review.mjs` (12/12) and the analytics repo's `tests/unit/harvested-trap-review.test.js`.
+- Tests: `test-harvested-observe.mjs` 73/73 (36 new: list parse back-compat, gating, IP literal,
+  dedupe and per-net and global bounds, status rule, induced-request screen, doc shape, and the full
+  handler: files on 404/410, never on 200/401/403, decoy, secret probe, verified crawler or previewer,
+  cross-site `<img>`, customer zone, sensor host, spoofed forwarding headers; bytes unchanged).
 
 ## 2.35.0 — 2026-11-25
 

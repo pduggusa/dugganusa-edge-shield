@@ -256,7 +256,7 @@ console.log('trap (units)');
     slice('function harvestedObserveEnabled(', 'async function postHarvestedObservation('),
     slice('function cfVerifiedCategory(', 'async function isVerifiedCrawler('),
     slice('function buildHarvestedTrapDoc(', 'async function indexHarvestedTrapHit('),
-    'return { parseHarvestedList, parseHarvestedTrap, harvestedTrapEnabled, getHarvestedTrap, isPlainIp, trapIpKey, harvestedTrapFirst, buildHarvestedTrapDoc, active: () => harvestedActive, HARVESTED_TRAP_CONFIDENCE, HARVESTED_TRAP_SOURCE };',
+    'return { parseHarvestedList, parseHarvestedTrap, harvestedTrapEnabled, getHarvestedTrap, isPlainIp, trapIpKey, harvestedTrapFirst, trapStatusCounts, trapLooksInduced, trapNetKey, buildHarvestedTrapDoc, active: () => harvestedActive, HARVESTED_TRAP_CONFIDENCE, HARVESTED_TRAP_SOURCE };',
   ].join('\n'))();
   const base = JSON.parse(liveBody(120)); base.paths.push(['/api/session/properties', 'CVE-2026-72898'], ['/multi/x.php', 'CVE-2026-1,CVE-2026-2']);
   t('backward compatible: a list WITHOUT trap still parses, with an empty trap', () => {
@@ -304,10 +304,34 @@ console.log('trap (units)');
     eq(T.harvestedTrapFirst('2001:db8:aa:bb::2', '/p', 5e9 + 1), false);
     eq(T.harvestedTrapFirst('45.138.12.32', '/p', 1000 + 25 * 3600e3), true);
   });
-  t('a rotating-address flood is bounded per isolate per minute', () => {
+  t('a rotating-address flood is bounded per isolate per minute (60, all nets)', () => {
     let filed = 0; for (let i = 0; i < 200; i++) if (T.harvestedTrapFirst(`10.9.${i}.1`, '/f', 9e9)) filed++;
-    eq(filed, 20);
+    eq(filed, 60);
     eq(T.harvestedTrapFirst('10.10.10.10', '/f', 9e9 + 61000), true);
+  });
+  t('one IPv6 /48 (or IPv4 /24) files at most 4 per day, and cannot spend the shared budget', () => {
+    let filed = 0;
+    for (let i = 0; i < 500; i++) if (T.harvestedTrapFirst(`2001:db8:77:${(i).toString(16)}::1`, `/p${i % 3}`, 2e10 + i)) filed++;
+    eq(filed, 4);
+    let v4 = 0; for (let i = 0; i < 50; i++) if (T.harvestedTrapFirst(`172.20.5.${i}`, '/x', 2e10)) v4++;
+    eq(v4, 4);
+    eq(T.harvestedTrapFirst('45.138.12.32', '/api/session/properties', 2e10 + 1000), true); // the real probe still lands
+    eq(T.trapNetKey('2001:db8:77:1::1'), '2001:db8:77::/48'); eq(T.trapNetKey('2001:db8::1'), '2001:db8:0::/48');
+  });
+  t('which answers count: 404, 410, edge scanner 418; never 401/403/405/429/5xx/2xx/3xx', () => {
+    for (const s of [404, 410]) eq(T.trapStatusCounts(s, false), true, s);
+    eq(T.trapStatusCounts(418, true), true); eq(T.trapStatusCounts(418, false), false);
+    for (const s of [200, 204, 301, 302, 304, 400, 401, 403, 405, 429, 500, 502, 503]) eq(T.trapStatusCounts(s, false), false, s);
+  });
+  t('induced-request screen: OPTIONS, browser-initiated, verified bots, previewers, assistants, mail scanners', () => {
+    const r = (h = {}, m = 'GET') => new Request('https://www.dugganusa.com/x', { method: m, headers: h });
+    eq(T.trapLooksInduced(r({ 'user-agent': 'python-requests/2.31' }), {}), false);
+    eq(T.trapLooksInduced(r({ 'user-agent': 'Mozilla/5.0 Chrome/125', 'sec-fetch-site': 'none' }), {}), false);
+    eq(T.trapLooksInduced(r({}, 'OPTIONS'), {}), true);
+    for (const site of ['cross-site', 'same-site', 'same-origin']) eq(T.trapLooksInduced(r({ 'user-agent': 'Mozilla/5.0', 'sec-fetch-site': site }), {}), true, site);
+    eq(T.trapLooksInduced(r({ 'user-agent': 'x' }), { verifiedBotCategory: 'Page Preview' }), true);
+    for (const ua of ['Slackbot-LinkExpanding 1.0', 'Mozilla/5.0 (compatible; Discordbot/2.0)', 'Claude-User/1.0', 'ChatGPT-User/1.0', 'facebookexternalhit/1.1', 'Proofpoint URL Defense'])
+      eq(T.trapLooksInduced(r({ 'user-agent': ua }), {}), true, ua);
   });
   t('the filed doc: own source, confidence 25 (< 30 STIX default, < 50 ips.csv, < 80 edge), labelled with the CVE', () => {
     const req = new Request('https://www.dugganusa.com/api/session/properties?token=secret', { headers: { 'user-agent': 'python-requests/2.31' } });
@@ -363,7 +387,12 @@ console.log('trap (full handler)');
   await run('/warmup', 404); // first request pulls the live list (waitUntil)
   const trap404 = await run('/api/session/properties', 404);
   const trap200 = await run('/api/session/properties', 200);
-  const trap401 = await run('/API/Session/Properties/', 401);
+  const trap410 = await run('/API/Session/Properties/', 410);
+  const trap401 = await run('/api/session/properties', 401);
+  const trap403 = await run('/api/session/properties', 403);
+  const imgLoad = await run('/api/session/properties', 404, { ua: 'Mozilla/5.0 Chrome/125', headers: { 'sec-fetch-site': 'cross-site', 'sec-fetch-dest': 'image', 'sec-fetch-mode': 'no-cors' } });
+  const typed = await run('/api/session/properties', 404, { ua: 'Mozilla/5.0 Chrome/125', headers: { 'sec-fetch-site': 'none', 'sec-fetch-dest': 'document' } });
+  const preview = await run('/api/session/properties', 404, { ua: 'Slackbot-LinkExpanding 1.0', cf: { verifiedBotCategory: 'Page Preview' } });
   const observeOnly = await run('/observe/only.php', 404);
   const crawler = await run('/api/session/properties', 404, { ua: 'Mozilla/5.0 (compatible; Googlebot/2.1)', cf: { verifiedBotCategory: 'Search Engine Crawler' } });
   const customer = await run('/api/session/properties', 404, { host: 'www.example.com' });
@@ -381,12 +410,15 @@ console.log('trap (full handler)');
   const traps = (r) => r.honey.filter(d => d.source === 'edge-harvested-trap');
   t('a >= 400 probe of a trap path files the source IP once, at 25, own source', () => {
     eq(traps(trap404).length, 1); const d = traps(trap404)[0];
-    eq(d.value, `203.0.${n - 15}.9`); eq(d.confidence, 25); eq(d.malware_family, 'harvested-trap:CVE-2026-72898');
+    eq(d.value, `203.0.${n - 20}.9`); eq(d.confidence, 25); eq(d.malware_family, 'harvested-trap:CVE-2026-72898');
     eq(d.honeypot_meta.status, 404);
   });
-  t('the response is unchanged: status and bytes', () => { eq(trap404.res.status, 404); eq(trap404.body, originBody); eq(trap401.res.status, 401); eq(trap401.body, originBody); });
+  t('the response is unchanged: status and bytes', () => { eq(trap404.res.status, 404); eq(trap404.body, originBody); eq(trap410.res.status, 410); eq(trap410.body, originBody); eq(trap401.body, originBody); });
   t('a trap path that returns real content (200) files NOTHING', () => { eq(traps(trap200).length, 0); eq(trap200.res.status, 200); eq(trap200.body, originBody); });
-  t('case and trailing slash normalize to the trap path; 401 files', () => eq(traps(trap401).length, 1));
+  t('case and trailing slash normalize to the trap path; 410 files', () => eq(traps(trap410).length, 1));
+  t('a 401 or 403 (an auth-gated real route answers these) files nothing', () => { eq(traps(trap401).length, 0); eq(traps(trap403).length, 0); });
+  t('a cross-site <img> load (induced) files nothing; a typed URL (Sec-Fetch-Site: none) files', () => { eq(traps(imgLoad).length, 0); eq(traps(typed).length, 1); });
+  t('a Cloudflare-verified link previewer files nothing', () => eq(traps(preview).length, 0));
   t('a harvested path NOT in the trap set files nothing (observation only)', () => { eq(traps(observeOnly).length, 0); eq(observeOnly.posted.length, 1); });
   t('a verified crawler never files', () => eq(traps(crawler).length, 0));
   t('a customer zone never files unless opted in', () => { eq(traps(customer).length, 0); eq(traps(customerIn).length, 1); });

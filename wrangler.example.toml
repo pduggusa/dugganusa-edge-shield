@@ -117,7 +117,7 @@ HONEYPOTS_ENABLED = "false"
 # HARVESTED_OBSERVE = "true"
 
 # Harvested-path TRAP (2.36.0): on a narrow subset of those paths (CVE in CISA KEV, path listed by
-# PoCs from at least two GitHub owners), a probe your site answers with HTTP >= 400 sends the
+# PoCs from at least two GitHub owners), a probe your site answers with HTTP 404/410 sends the
 # VISITOR IP, User-Agent, ASN and country to DugganUSA, filed at confidence 25: below every default
 # blocking and publishing floor, so one hit never blocks anyone. Personal data under GDPR, like the
 # honeypots. Unset = DugganUSA zones only. "true" opts your zones in; "false" turns it off.

@@ -2143,7 +2143,10 @@ function harvestedFirstInWindow(key, now = Date.now()) {
 // WHEN: only after the response is known and only if it is >= 400 (the INVARIANT in the default export):
 // a planted path that is one of our real pages returns real content and files nothing. Never on an edge
 // decoy (the canary files its own record) and never on a secret-file probe (never indexed, 2.13.2).
-// Never for a verified crawler. Never on a SENSOR host (LAYER -2 returns first).
+// Never for a verified crawler. Never on a SENSOR host (LAYER -2 returns first). After the OWASP review
+// of f5864ec: only a 404/410 or the edge's scanner 418 counts (an auth-gated real route answers 401/403),
+// and a request that looks induced (OPTIONS, Sec-Fetch-Site other than "none", any Cloudflare-verified
+// bot, previewer/assistant/mail-scanner user agents) is not filed.
 //
 // AT WHAT WEIGHT: confidence 25 — below the STIX bundle default (30), the ips.csv default (50) and the
 // edge/Cloudflare-list floor (80) — under its own source `edge-harvested-trap`, which the canary rollup,
@@ -2158,7 +2161,39 @@ const HARVESTED_TRAP_CONFIDENCE = 25;
 const HARVESTED_TRAP_SOURCE = 'edge-harvested-trap';
 const HARVESTED_TRAP_DEDUPE_MS = 24 * 3600 * 1000;
 const HARVESTED_TRAP_SEEN_MAX = 5000;
-const HARVESTED_TRAP_PER_MIN = 20; // per isolate: bounds what a rotating-address flood can write
+const HARVESTED_TRAP_PER_MIN = 60; // per isolate, all sources: the last bound on ingest writes
+const HARVESTED_TRAP_PER_NET_DAY = 4; // per isolate per IPv4 /24 or IPv6 /48 per day, checked FIRST
+// (OWASP review of f5864ec, F3/F4): one actor rotating addresses inside a /48 used to fill the global
+// budget and crowd out everyone else; now it spends its own net's 4 and the global budget is untouched.
+const HARVESTED_TRAP_NET_MAX = 5000;
+
+// Which answers count (review F2): a 404 or 410 from the origin (the path is not served here) or the
+// edge's own scanner 418. NOT 401/403/405/429/5xx: an auth-gated real route answers 401 or 403, and a
+// rate-limited or erroring request says nothing about the path.
+function trapStatusCounts(status, edgeScanner418) {
+  return status === 404 || status === 410 || (status === 418 && edgeScanner418 === true);
+}
+
+// INDUCED-REQUEST SCREEN (review F1). A browser loading an <img>, a CORS preflight, a link previewer,
+// an AI assistant fetching for a user or a mail link scanner sends a request its owner did not choose.
+// Skipped: OPTIONS; any request whose Sec-Fetch-Site is not "none" (a browser request initiated by a
+// page; "none" = typed or bookmarked); any Cloudflare-verified bot of any category; and the user agents
+// of previewers, assistant fetchers and mail scanners. All of this is client-controlled, so a scanner
+// can dress up to evade the trap; that costs us only a sub-floor record, which is the right way round.
+const TRAP_INDUCED_UA = /slackbot|slack-imgproxy|discordbot|telegrambot|whatsapp|facebookexternalhit|facebot|twitterbot|linkedinbot|skypeuripreview|teams|microsoftpreview|pinterest|redditbot|embedly|iframely|bitlybot|google-inspectiontool|googleother|feedfetcher|claude-user|claude-searchbot|chatgpt-user|oai-searchbot|perplexity-user|mistralai-user|meta-externalfetcher|duckassistbot|youbot|proofpoint|mimecast|barracuda|safelinks|symantec|trendmicro|ironport|forcepoint|zscaler|urldefense/i;
+function trapLooksInduced(request, cf) {
+  if (String(request.method || '').toUpperCase() === 'OPTIONS') return true;
+  const site = request.headers.get('sec-fetch-site');
+  if (site !== null && site.trim().toLowerCase() !== 'none') return true;
+  if (cfVerifiedCategory(cf)) return true;
+  return TRAP_INDUCED_UA.test(request.headers.get('user-agent') || '');
+}
+
+function trapNetKey(ip) {
+  const s = String(ip || '').toLowerCase();
+  if (!s.includes(':')) { const o = s.split('.'); return o.length === 4 ? `${o[0]}.${o[1]}.${o[2]}.0/24` : s; }
+  return trapIpKey(s).split(':').slice(0, 3).join(':') + '::/48';
+}
 
 function harvestedTrapEnabled(env, hostname) {
   if (String(env.HONEYPOTS_ENABLED ?? 'true').toLowerCase() === 'false') return false;
@@ -2177,7 +2212,16 @@ function getHarvestedTrap(path) {
 function isPlainIp(s) {
   const v = String(s || '');
   if (/^(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}$/.test(v)) return true;
-  return v.length <= 45 && v.includes(':') && /^[0-9a-f:.]+$/i.test(v) && !/:::/.test(v) && (v.match(/::/g) || []).length <= 1;
+  // IPv6: hex groups only (no embedded IPv4, no zone id), 8 groups, or fewer with exactly one '::'.
+  if (v.length > 39 || !/^[0-9a-f:]+$/i.test(v) || /:::/.test(v)) return false;
+  const dbl = (v.match(/::/g) || []).length;
+  if (dbl > 1) return false;
+  const groups = v.split(':').filter((g, i, a) => !(g === '' && (dbl === 1)));
+  if (groups.some(g => g.length < 1 || g.length > 4)) return false;
+  if (dbl === 0) return v.split(':').length === 8 && !v.startsWith(':') && !v.endsWith(':');
+  if (v.startsWith(':') && !v.startsWith('::')) return false;
+  if (v.endsWith(':') && !v.endsWith('::')) return false;
+  return groups.length >= 1 && groups.length <= 7;
 }
 
 // Dedupe key: the exact IPv4, or the IPv6 /64 (a host rotates inside its /64; one record per /64 and path).
@@ -2193,13 +2237,21 @@ function trapIpKey(ip) {
 
 const harvestedTrapSeen = new Map(); // `${ipKey}|${path}` -> ms, per isolate
 let harvestedTrapWindow = { start: 0, n: 0 };
+const harvestedTrapNets = new Map(); // net -> { start, n }, per isolate
 function harvestedTrapFirst(ip, path, now = Date.now()) {
   const key = `${trapIpKey(ip)}|${path}`;
   const t = harvestedTrapSeen.get(key);
   if (t && now - t < HARVESTED_TRAP_DEDUPE_MS) return false;
+  const net = trapNetKey(ip);
+  let nb = harvestedTrapNets.get(net);
+  if (!nb || now - nb.start >= HARVESTED_TRAP_DEDUPE_MS) nb = { start: now, n: 0 };
+  if (nb.n >= HARVESTED_TRAP_PER_NET_DAY) return false;
   if (now - harvestedTrapWindow.start >= 60000) harvestedTrapWindow = { start: now, n: 0 };
   if (harvestedTrapWindow.n >= HARVESTED_TRAP_PER_MIN) return false;
   harvestedTrapWindow.n++;
+  nb.n++;
+  if (!harvestedTrapNets.has(net) && harvestedTrapNets.size >= HARVESTED_TRAP_NET_MAX) harvestedTrapNets.clear();
+  harvestedTrapNets.set(net, nb);
   if (harvestedTrapSeen.size >= HARVESTED_TRAP_SEEN_MAX) harvestedTrapSeen.clear();
   harvestedTrapSeen.set(key, now);
   return true;
@@ -2750,7 +2802,7 @@ async function handleFetch(request, env, ctx, obs) {
       if (pull) ctx.waitUntil(pull);
       const hv = getHarvestedMatch(reqUrl.pathname);
       const trapCve = hv && harvestedTrapOn ? getHarvestedTrap(hv.path) : null;
-      if (trapCve && isPlainIp(ip)) obs.trap = { ip, cve: trapCve, path: hv.path, listGeneratedAt: harvestedActive.generatedAt };
+      if (trapCve && isPlainIp(ip) && !trapLooksInduced(request, cf)) obs.trap = { ip, cve: trapCve, path: hv.path, listGeneratedAt: harvestedActive.generatedAt };
       if (hv && harvestedObserveOn) {
         // Noted only. The default-export wrapper reports it once the response is known, and only
         // if the request got no real content (see the INVARIANT there).
@@ -2807,7 +2859,7 @@ async function handleFetch(request, env, ctx, obs) {
     // LAYER 1: Scanner detection — return 418 I'm a Teapot
     // ============================================================
     if (cfg.scanner418 && !verifiedCrawler && !canary && detectScanner(ua, asnOrg)) {
-      if (!cfg.observe) return scannerResponse(request, cf);
+      if (!cfg.observe) { obs.scanner418 = true; return scannerResponse(request, cf); }
       observed.push('scanner');
       logObserved('scanner-418', ip, hostname, reqUrl.pathname, rayId);
     }
@@ -3040,12 +3092,13 @@ export default {
   // files its own record) and a secret-file probe (never indexed) file nothing here, and neither does any
   // response with real content. The response object is returned untouched in every case.
   async fetch(request, env, ctx) {
-    const obs = { pending: null, key: '', edgeDecoy: false, trap: null, secretProbe: false };
+    const obs = { pending: null, key: '', edgeDecoy: false, trap: null, secretProbe: false, scanner418: false };
     const res = await handleFetch(request, env, ctx, obs);
     if (obs.pending && (res.status >= 400 || obs.edgeDecoy) && harvestedFirstInWindow(obs.key)) {
       ctx.waitUntil(postHarvestedObservation(env, obs.pending));
     }
-    if (obs.trap && res.status >= 400 && !obs.edgeDecoy && !obs.secretProbe && harvestedTrapFirst(obs.trap.ip, obs.trap.path)) {
+    if (obs.trap && trapStatusCounts(res.status, obs.scanner418) && !obs.edgeDecoy && !obs.secretProbe &&
+        harvestedTrapFirst(obs.trap.ip, obs.trap.path)) {
       ctx.waitUntil(indexHarvestedTrapHit(env, request, request.cf || {}, obs.trap, res.status));
     }
     return res;

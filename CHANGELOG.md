@@ -2,6 +2,51 @@
 
 All notable changes to DugganUSA Edge Shield are documented here.
 
+## 2.36.0 — 2026-11-25
+
+- **Harvested-path TRAP: the source IP of a probe on a corroborated KEV PoC path is filed the same
+  day, below every floor.** On 2026-11-12..18, 45.138.12.32 (listed by CSIRT Italia as ARTEX
+  AI-attack-framework infrastructure) probed `/api/session/properties` (Metabase, CVE-2026-72898 PoC
+  path) on dugganusa.com. The harvested-path observation recorded only `{cve, path, /24}`, by design,
+  and the address reached an IOC list 11-13 days later, via ThreatFox.
+- **Which paths.** Only the server's new `trap` field on `GET /feed/observation/paths`: harvested paths
+  whose CVE is in CISA KEV AND that PoCs from at least 2 distinct GitHub owners list for that same CVE
+  (fabricated-PoC owners, `poc-kind:fabricated`/`placeholder` rules and non-GitHub references do not
+  count; our own routes and everything else the observe list drops are excluded first). At most 500.
+  The worker accepts a trap entry only if its path is on the validated list with that CVE. The field
+  is additive: older workers ignore it, and a list without it (or with a malformed one) gives an empty
+  trap, never a rejected list. The bundled fallback list has no trap set.
+- **When.** After the response is known, and only if it is HTTP >= 400 (the 2.17.0 INVARIANT, made
+  stricter): a real page files nothing, an edge decoy files only its own canary record, a secret-file
+  probe is never filed. Never for a verified crawler, never on a SENSOR host. One filing per IP (IPv6:
+  per /64) and path per isolate per 24 h, at most 20 per isolate per minute. The response is unchanged.
+- **At what weight.** Confidence **25**, source `edge-harvested-trap`, `malware_family`
+  `harvested-trap:<CVE>`, `threat_type` `harvested-trap-probe`, via the same `/threat-intel/honeypot`
+  ingest canaries use (key-checked; the server's protected-IP guard skips operator addresses). 25 is
+  below the STIX bundle default (30), the ips.csv default (50) and the edge and Cloudflare-list floor
+  (80), so one hit is recorded and enrichable but blocks nothing and is absent from every default feed
+  pull. A consumer who asks for `min_confidence` <= 25 does get it. The analytics side also caps this
+  source at 25, and its source is not `edge-honeypot`, so the canary_ips lane, Spamhaus/ThreatFox
+  contribution and first-party lead lanes never read it. (The design brief suggested 45; 45 would have
+  shipped in the default STIX bundle, whose floor is 30.)
+- **Scope.** DugganUSA zones by default (`HARVESTED_TRAP` unset); `"true"` opts a customer zone in,
+  `"false"` turns it off; `HONEYPOTS_ENABLED="false"` also turns it off (it sends a visitor IP).
+- **Stated limits.** The list is built from public GitHub repos, so two sockpuppet accounts on a KEV
+  CVE can add a trap path; and any probe can be INDUCED (a link previewer, a prompt-injected fetcher, an
+  `<img>` on someone else's page), so a trap record says a request ARRIVED from that address, not that
+  its owner meant it. Both are why the confidence sits below every floor and why nothing promotes it.
+  Shared egress (a corporate NAT, a mobile CGNAT, a cloud fetcher) can carry an innocent's request.
+  The per-isolate rate bound can be spent by a flood to suppress other filings in that isolate for up
+  to a minute. Operator protection is server-side only (protected-IP set); the Worker has no list.
+- **Promotion is NOT built.** A later rule could raise a trap record's confidence only on independent
+  corroboration, for example the same address on >= 2 distinct trap CVEs across >= 2 days (harder to
+  induce than one), or a recent listing in a vetted lane (URLhaus, SSLBL, Feodo) for the exact address.
+  Crowd lanes alone (ThreatFox submissions, tweets) must not qualify: they are poisonable the same way
+  this list is. Any promoter ships disarmed and with its own review.
+- Tests: `test-harvested-observe.mjs` 67/67 (30 new: list parse back-compat, gating, IP literal,
+  dedupe and flood bound, doc shape, and the full handler: files on 404/401, never on 200, decoy,
+  secret probe, verified crawler, customer zone, sensor host, spoofed forwarding headers; bytes unchanged).
+
 ## 2.35.0 — 2026-11-25
 
 - **Check Point canaries.** GreyNoise's GT13 report (2026-11-23) has an actor driving 24 Check Point

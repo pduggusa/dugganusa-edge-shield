@@ -246,5 +246,160 @@ console.log('invariant (full handler)');
   t('the response is never changed by observation', () => { eq(r404.res.status, 404); });
 }
 
+// ---- HARVESTED-PATH TRAP (2.36.0) ----
+console.log('trap (units)');
+{
+  const T = new Function([
+    "const APPLIANCE_OWN_ZONES = ['dugganusa.com', 'aipmsec.com'];",
+    slice('function safeDecode(', 'function getCanary('),
+    "const HARVESTED_PATHS_GENERATED_AT = 'b'; const HARVESTED_PATHS = new Map([['/bundled/one.php','CVE-2026-1']]);",
+    slice('function harvestedObserveEnabled(', 'async function postHarvestedObservation('),
+    slice('function cfVerifiedCategory(', 'async function isVerifiedCrawler('),
+    slice('function buildHarvestedTrapDoc(', 'async function indexHarvestedTrapHit('),
+    'return { parseHarvestedList, parseHarvestedTrap, harvestedTrapEnabled, getHarvestedTrap, isPlainIp, trapIpKey, harvestedTrapFirst, buildHarvestedTrapDoc, active: () => harvestedActive, HARVESTED_TRAP_CONFIDENCE, HARVESTED_TRAP_SOURCE };',
+  ].join('\n'))();
+  const base = JSON.parse(liveBody(120)); base.paths.push(['/api/session/properties', 'CVE-2026-72898'], ['/multi/x.php', 'CVE-2026-1,CVE-2026-2']);
+  t('backward compatible: a list WITHOUT trap still parses, with an empty trap', () => {
+    const p = T.parseHarvestedList(JSON.stringify(base)); eq(p.map.size, 122); eq(p.trap.size, 0);
+  });
+  t('backward compatible: a list WITH trap still parses for the old parser shape (paths unchanged)', () => {
+    const p = T.parseHarvestedList(JSON.stringify({ ...base, trap: [['/api/session/properties', 'CVE-2026-72898']] }));
+    eq(p.map.size, 122); eq([...p.trap], [['/api/session/properties', 'CVE-2026-72898']]);
+  });
+  t('trap entries must be on the list, for one of that path\'s CVEs; junk and off-list ignored', () => {
+    const p = T.parseHarvestedList(JSON.stringify({ ...base, trap: [
+      ['/not/on/list.php', 'CVE-2026-72898'], ['/api/session/properties', 'CVE-2026-99999'], ['/multi/x.php', 'CVE-2026-2'],
+      ['/multi/x.php', 'CVE-2026-1,CVE-2026-2'], [1, 2], 'x', ['/', 'CVE-2026-1'], ['/live1/x.php', 'CVE-2026-2001'] ] }));
+    eq([...p.trap].sort(), [['/live1/x.php', 'CVE-2026-2001'], ['/multi/x.php', 'CVE-2026-2']]);
+  });
+  t('a malformed or oversized trap field empties the trap, never rejects the list', () => {
+    for (const trap of ['x', { a: 1 }, null, Array.from({ length: 501 }, () => ['/live1/x.php', 'CVE-2026-2001'])]) {
+      const p = T.parseHarvestedList(JSON.stringify({ ...base, trap })); eq(p.map.size, 122); eq(p.trap.size, 0);
+    }
+  });
+  t('trap gating: own zones by default, customer zone off unless opted in, false and HONEYPOTS_ENABLED=false turn it off', () => {
+    eq(T.harvestedTrapEnabled({}, 'www.dugganusa.com'), true);
+    eq(T.harvestedTrapEnabled({}, 'www.example.com'), false);
+    eq(T.harvestedTrapEnabled({}, 'dugganusa.com.evil.net'), false);
+    eq(T.harvestedTrapEnabled({ HARVESTED_TRAP: 'true' }, 'www.example.com'), true);
+    eq(T.harvestedTrapEnabled({ HARVESTED_TRAP: 'false' }, 'www.dugganusa.com'), false);
+    eq(T.harvestedTrapEnabled({ HONEYPOTS_ENABLED: 'false' }, 'www.dugganusa.com'), false);
+    eq(T.harvestedTrapEnabled({ HONEYPOTS_ENABLED: 'false', HARVESTED_TRAP: 'true' }, 'www.example.com'), false);
+  });
+  t('only a bare IP literal is filed', () => {
+    for (const v of ['45.138.12.32', '2001:db8::1', '2001:db8:1:2:3:4:5:6']) eq(T.isPlainIp(v), true, v);
+    for (const v of ['', '1.2.3.4, 5.6.7.8', '1.2.3', '999.1.1.1', 'evil.com', '1.2.3.4 ', '2001:db8::1::2', '<script>', 'a'.repeat(50) + ':1']) eq(T.isPlainIp(v), false, v);
+  });
+  t('dedupe key: exact IPv4, IPv6 /64', () => {
+    eq(T.trapIpKey('45.138.12.32'), '45.138.12.32');
+    eq(T.trapIpKey('2001:db8:aa:bb:1::2'), '2001:db8:aa:bb::/64');
+    eq(T.trapIpKey('2001:db8:aa:bb:9:9:9:9'), '2001:db8:aa:bb::/64');
+    eq(T.trapIpKey('2001:db8::1'), '2001:db8:0:0::/64');
+  });
+  t('dedupe: one filing per IP (or /64) and path per 24h, per isolate', () => {
+    eq(T.harvestedTrapFirst('45.138.12.32', '/p', 1000), true);
+    eq(T.harvestedTrapFirst('45.138.12.32', '/p', 1000 + 3600e3), false);
+    eq(T.harvestedTrapFirst('45.138.12.32', '/q', 1000 + 3600e3), true);
+    eq(T.harvestedTrapFirst('2001:db8:aa:bb::1', '/p', 5e9), true);
+    eq(T.harvestedTrapFirst('2001:db8:aa:bb::2', '/p', 5e9 + 1), false);
+    eq(T.harvestedTrapFirst('45.138.12.32', '/p', 1000 + 25 * 3600e3), true);
+  });
+  t('a rotating-address flood is bounded per isolate per minute', () => {
+    let filed = 0; for (let i = 0; i < 200; i++) if (T.harvestedTrapFirst(`10.9.${i}.1`, '/f', 9e9)) filed++;
+    eq(filed, 20);
+    eq(T.harvestedTrapFirst('10.10.10.10', '/f', 9e9 + 61000), true);
+  });
+  t('the filed doc: own source, confidence 25 (< 30 STIX default, < 50 ips.csv, < 80 edge), labelled with the CVE', () => {
+    const req = new Request('https://www.dugganusa.com/api/session/properties?token=secret', { headers: { 'user-agent': 'python-requests/2.31' } });
+    const d = T.buildHarvestedTrapDoc(req, { asn: 64500, asOrganization: 'X', country: 'NL' },
+      { ip: '45.138.12.32', cve: 'CVE-2026-72898', path: '/api/session/properties' }, 404, 1764000000000);
+    eq(d.source, 'edge-harvested-trap'); eq(d.value, '45.138.12.32'); eq(d.type, 'ipv4');
+    if (!(d.confidence < 30 && d.confidence < 50 && d.confidence < 80)) throw new Error(`confidence ${d.confidence}`);
+    eq(d.malware_family, 'harvested-trap:CVE-2026-72898'); eq(d.threat_type, 'harvested-trap-probe');
+    if (!/^[a-zA-Z0-9_-]+$/.test(d.id)) throw new Error(`id not Meili-safe: ${d.id}`);
+    if (JSON.stringify(d).includes('token=secret')) throw new Error('query string leaked into the doc');
+    eq(d.source === 'edge-honeypot', false);
+  });
+  t('IPv6 doc id is Meili-safe', () => {
+    const d = T.buildHarvestedTrapDoc(new Request('https://www.dugganusa.com/x'), {}, { ip: '2001:db8::1', cve: 'CVE-2026-1', path: '/x' }, 404, 1);
+    if (!/^[a-zA-Z0-9_-]+$/.test(d.id)) throw new Error(d.id); eq(d.type, 'ipv6');
+  });
+}
+
+console.log('trap (full handler)');
+{
+  const posted = [], honey = [];
+  let originStatus = 404, originBody = 'origin-bytes-é\u0000x';
+  const trapList = JSON.parse(liveBody(120));
+  trapList.paths.push(['/api/session/properties', 'CVE-2026-72898'], ['/observe/only.php', 'CVE-2026-5'],
+    ['/_layouts/15/notify.aspx', 'CVE-2026-32201'], ['/@fs/etc/passwd', 'CVE-2026-7']);
+  trapList.trap = [['/api/session/properties', 'CVE-2026-72898'], ['/_layouts/15/notify.aspx', 'CVE-2026-32201'], ['/@fs/etc/passwd', 'CVE-2026-7']];
+  globalThis.fetch = async (input, init) => {
+    const req = input instanceof Request ? input : new Request(input, init);
+    const u = new URL(req.url);
+    if (u.pathname.endsWith('/feed/observation')) { posted.push(JSON.parse(await req.text())); return new Response('{"success":true}'); }
+    if (u.pathname.endsWith('/feed/observation/paths')) return new Response(JSON.stringify(trapList));
+    if (u.pathname.includes('/stix-feed/')) return new Response('ip,confidence\n');
+    if (u.pathname.includes('/threat-intel/honeypot')) { honey.push(JSON.parse(await req.text())); return new Response('{}'); }
+    if (u.pathname.includes('/feed/hit')) return new Response('{}');
+    return new Response(originBody, { status: originStatus, headers: { 'content-type': 'text/plain' } });
+  };
+  const store = new Map();
+  globalThis.caches = { default: { match: async (k) => store.get(k.url)?.clone(), put: async (k, v) => { store.set(k.url, v.clone()); } } };
+  const realLog = console.log; console.log = () => {};
+  // A fresh module instance (the trailing comment makes a distinct URL), so module state starts empty.
+  const worker = (await import('data:text/javascript,' + encodeURIComponent(src + '\n// trap-suite'))).default;
+  let n = 0;
+  const run = async (path, status, { host = 'www.dugganusa.com', env = {}, ua = 'python-requests/2.31', cf = null, ip = null, headers = {} } = {}) => {
+    originStatus = status; posted.length = 0; honey.length = 0; n++;
+    const waits = []; const ctx = { waitUntil: (p) => waits.push(p) };
+    const req = new Request(`https://${host}${path}`, { headers: { 'user-agent': ua, 'cf-connecting-ip': ip ?? `203.0.${n}.9`, ...headers } });
+    if (cf) Object.defineProperty(req, 'cf', { value: cf });
+    const res = await worker.fetch(req, { DUGGANUSA_API_KEY: 'k', HONEYPOTS_ENABLED: 'true', ...env }, ctx);
+    const body = await res.text();
+    await Promise.all(waits);
+    return { res, body, posted: [...posted], honey: [...honey] };
+  };
+  await run('/warmup', 404); // first request pulls the live list (waitUntil)
+  const trap404 = await run('/api/session/properties', 404);
+  const trap200 = await run('/api/session/properties', 200);
+  const trap401 = await run('/API/Session/Properties/', 401);
+  const observeOnly = await run('/observe/only.php', 404);
+  const crawler = await run('/api/session/properties', 404, { ua: 'Mozilla/5.0 (compatible; Googlebot/2.1)', cf: { verifiedBotCategory: 'Search Engine Crawler' } });
+  const customer = await run('/api/session/properties', 404, { host: 'www.example.com' });
+  const customerIn = await run('/api/session/properties', 404, { host: 'www.example.com', env: { HARVESTED_TRAP: 'true' } });
+  const trapOff = await run('/api/session/properties', 404, { env: { HARVESTED_TRAP: 'false' } });
+  const hpOff = await run('/api/session/properties', 404, { env: { HONEYPOTS_ENABLED: 'false' } });
+  const decoy = await run('/_layouts/15/notify.aspx', 200);
+  const secret = await run('/@fs/etc/passwd', 404);
+  const spoof = await run('/api/session/properties', 404, { ip: '198.18.7.7', headers: { 'x-forwarded-for': '8.8.8.8', 'x-real-ip': '8.8.4.4', 'true-client-ip': '1.1.1.1' } });
+  const badIp = await run('/api/session/properties', 404, { ip: '9.9.9.9, 45.138.12.32' });
+  const dup1 = await run('/api/session/properties', 404, { ip: '192.0.2.55' });
+  const dup2 = await run('/api/session/properties', 404, { ip: '192.0.2.55' });
+  const sensor = await run('/api/session/properties', 404, { host: 'sensor.dugganusa.com', env: { SENSOR_HOSTS: 'sensor.dugganusa.com' } });
+  console.log = realLog;
+  const traps = (r) => r.honey.filter(d => d.source === 'edge-harvested-trap');
+  t('a >= 400 probe of a trap path files the source IP once, at 25, own source', () => {
+    eq(traps(trap404).length, 1); const d = traps(trap404)[0];
+    eq(d.value, `203.0.${n - 15}.9`); eq(d.confidence, 25); eq(d.malware_family, 'harvested-trap:CVE-2026-72898');
+    eq(d.honeypot_meta.status, 404);
+  });
+  t('the response is unchanged: status and bytes', () => { eq(trap404.res.status, 404); eq(trap404.body, originBody); eq(trap401.res.status, 401); eq(trap401.body, originBody); });
+  t('a trap path that returns real content (200) files NOTHING', () => { eq(traps(trap200).length, 0); eq(trap200.res.status, 200); eq(trap200.body, originBody); });
+  t('case and trailing slash normalize to the trap path; 401 files', () => eq(traps(trap401).length, 1));
+  t('a harvested path NOT in the trap set files nothing (observation only)', () => { eq(traps(observeOnly).length, 0); eq(observeOnly.posted.length, 1); });
+  t('a verified crawler never files', () => eq(traps(crawler).length, 0));
+  t('a customer zone never files unless opted in', () => { eq(traps(customer).length, 0); eq(traps(customerIn).length, 1); });
+  t('HARVESTED_TRAP=false and HONEYPOTS_ENABLED=false turn it off on our own zone', () => { eq(traps(trapOff).length, 0); eq(traps(hpOff).length, 0); });
+  t('an edge decoy (200) files the canary record only, never a trap record', () => {
+    eq(traps(decoy).length, 0); eq(decoy.honey.filter(d => d.source === 'edge-honeypot').length, 1); eq(decoy.res.status, 200);
+  });
+  t('a secret-file probe (404 at the edge) is never filed, even on a trap path', () => { eq(secret.res.status, 404); eq(secret.honey.length, 0); });
+  t('client IP comes from cf-connecting-ip only; spoofed forwarding headers are ignored', () => { eq(traps(spoof).length, 1); eq(traps(spoof)[0].value, '198.18.7.7'); });
+  t('a non-literal cf-connecting-ip is never filed', () => eq(traps(badIp).length, 0));
+  t('the same IP and path files once per isolate window', () => { eq(traps(dup1).length, 1); eq(traps(dup2).length, 0); eq(dup2.res.status, 404); });
+  t('a SENSOR host never files', () => eq(sensor.honey.length, 0));
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

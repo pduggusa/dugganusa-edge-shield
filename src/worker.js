@@ -2023,7 +2023,10 @@ const HARVESTED_RETRY_MS = 30 * 60 * 1000;
 const HARVESTED_EDGE_CACHE_TTL = 6 * 3600; // seconds
 const HARVESTED_MIN_ENTRIES = 100;
 const HARVESTED_MAX_ENTRIES = 10000;
-let harvestedActive = { map: HARVESTED_PATHS, generatedAt: HARVESTED_PATHS_GENERATED_AT, source: 'bundled', lastPull: 0, lastFail: 0 };
+const HARVESTED_TRAP_MAX = 500;
+// `trap` (2.36.0): path -> CVE, the TRAP subset of the live list (see HARVESTED-PATH TRAP below). The
+// bundled fallback has none: trap filing needs a live list from a server that computed one.
+let harvestedActive = { map: HARVESTED_PATHS, trap: new Map(), generatedAt: HARVESTED_PATHS_GENERATED_AT, source: 'bundled', lastPull: 0, lastFail: 0 };
 let harvestedInFlight = null;
 
 // Pure: a pulled body -> Map, or null if it must not replace the current list.
@@ -2040,7 +2043,25 @@ function parseHarvestedList(body) {
     m.set(p, c);
   }
   if (m.size < HARVESTED_MIN_ENTRIES) return null;
-  return { map: m, generatedAt: typeof j.generated_at === 'string' ? j.generated_at.slice(0, 40) : '' };
+  return { map: m, trap: parseHarvestedTrap(j.trap, m), generatedAt: typeof j.generated_at === 'string' ? j.generated_at.slice(0, 40) : '' };
+}
+
+// Pure: the optional `trap` field (2.36.0) -> Map(path -> CVE). ADDITIVE: a server that sends none (before
+// the trap existed) or a malformed one yields an EMPTY trap, never a rejected list, so the observe list keeps
+// working either way. An entry counts only if its path is on the validated list AND its CVE is one of that
+// path's CVEs, so the trap can never reach a path the observe list does not already hold. Oversized = none.
+function parseHarvestedTrap(trap, map) {
+  const t = new Map();
+  if (!Array.isArray(trap) || trap.length > HARVESTED_TRAP_MAX) return t;
+  for (const e of trap) {
+    if (!Array.isArray(e) || e.length !== 2) continue;
+    const [p, c] = e;
+    if (typeof p !== 'string' || typeof c !== 'string' || !/^CVE-\d{4}-\d{1,7}$/.test(c)) continue;
+    const cves = map.get(p);
+    if (!cves || !cves.split(',').includes(c)) continue;
+    t.set(p, c);
+  }
+  return t;
 }
 
 function refreshHarvested(env, now = Date.now()) {
@@ -2063,7 +2084,7 @@ function refreshHarvested(env, now = Date.now()) {
       }
       const parsed = parseHarvestedList(body);
       if (!parsed) throw new Error('pulled list did not validate');
-      harvestedActive = { map: parsed.map, generatedAt: parsed.generatedAt, source: 'live', lastPull: Date.now(), lastFail: a.lastFail };
+      harvestedActive = { map: parsed.map, trap: parsed.trap, generatedAt: parsed.generatedAt, source: 'live', lastPull: Date.now(), lastFail: a.lastFail };
     } catch (e) {
       harvestedActive = { ...harvestedActive, lastFail: Date.now() };
       console.log(JSON.stringify({ shield: 'harvested-refresh', error: String(e && e.message || e).slice(0, 80),
@@ -2107,6 +2128,83 @@ function harvestedFirstInWindow(key, now = Date.now()) {
   return true;
 }
 
+// ================================================================
+// HARVESTED-PATH TRAP (2.36.0, 2026-11-25) — file the SOURCE IP, below every publishing floor
+// ================================================================
+// WHY: 2026-11-12..18, 45.138.12.32 (listed by CSIRT Italia as ARTEX AI-attack-framework
+// infrastructure) probed /api/session/properties (Metabase, CVE-2026-72898 PoC path) on dugganusa.com.
+// The observation above kept {cve, path, /24} by design, and the address reached any IOC list 11-13
+// days later, via ThreatFox. This records the address the same day, for a narrow subset.
+//
+// WHICH PATHS: only the server's TRAP subset (lib/harvested-paths.js buildTrap): a harvested path whose
+// CVE is in CISA KEV and which PoCs from >= 2 distinct GitHub owners list for that CVE, fabricated-PoC
+// owners excluded, our own routes excluded. The bundled fallback list has no trap set.
+//
+// WHEN: only after the response is known and only if it is >= 400 (the INVARIANT in the default export):
+// a planted path that is one of our real pages returns real content and files nothing. Never on an edge
+// decoy (the canary files its own record) and never on a secret-file probe (never indexed, 2.13.2).
+// Never for a verified crawler. Never on a SENSOR host (LAYER -2 returns first).
+//
+// AT WHAT WEIGHT: confidence 25 — below the STIX bundle default (30), the ips.csv default (50) and the
+// edge/Cloudflare-list floor (80) — under its own source `edge-harvested-trap`, which the canary rollup,
+// Spamhaus/ThreatFox contribution and first-party lanes do not read. One probe can be INDUCED (link
+// previewers, prompt-injected fetchers, an <img> on a third-party page), so one hit is RECORDED and
+// ENRICHABLE but blocks nothing and publishes nothing at default floors. Operator IPs are skipped by the
+// server's protected-IP guard on the same ingest route canaries use. The response is never changed.
+//
+// SCOPE: our own zones by default (HARVESTED_TRAP unset); "true" opts a customer zone in, "false" turns it
+// off everywhere. HONEYPOTS_ENABLED="false" also turns it off (it sends a visitor IP, like a canary).
+const HARVESTED_TRAP_CONFIDENCE = 25;
+const HARVESTED_TRAP_SOURCE = 'edge-harvested-trap';
+const HARVESTED_TRAP_DEDUPE_MS = 24 * 3600 * 1000;
+const HARVESTED_TRAP_SEEN_MAX = 5000;
+const HARVESTED_TRAP_PER_MIN = 20; // per isolate: bounds what a rotating-address flood can write
+
+function harvestedTrapEnabled(env, hostname) {
+  if (String(env.HONEYPOTS_ENABLED ?? 'true').toLowerCase() === 'false') return false;
+  const flag = String(env.HARVESTED_TRAP ?? '').toLowerCase();
+  if (flag === 'false') return false;
+  if (flag === 'true') return true;
+  const host = String(hostname || '').toLowerCase();
+  return APPLIANCE_OWN_ZONES.some(z => host === z || host.endsWith('.' + z));
+}
+
+function getHarvestedTrap(path) {
+  return harvestedActive.trap ? (harvestedActive.trap.get(path) || null) : null;
+}
+
+// A bare IPv4 or IPv6 literal (cf-connecting-ip is set by Cloudflare; anything else is not filed).
+function isPlainIp(s) {
+  const v = String(s || '');
+  if (/^(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}$/.test(v)) return true;
+  return v.length <= 45 && v.includes(':') && /^[0-9a-f:.]+$/i.test(v) && !/:::/.test(v) && (v.match(/::/g) || []).length <= 1;
+}
+
+// Dedupe key: the exact IPv4, or the IPv6 /64 (a host rotates inside its /64; one record per /64 and path).
+function trapIpKey(ip) {
+  const s = String(ip || '').toLowerCase();
+  if (!s.includes(':')) return s;
+  const [h, t = ''] = s.split('::');
+  const hg = h ? h.split(':') : [];
+  const tg = s.includes('::') && t ? t.split(':') : [];
+  const full = s.includes('::') ? [...hg, ...Array(Math.max(0, 8 - hg.length - tg.length)).fill('0'), ...tg] : hg;
+  return full.slice(0, 4).map(x => x.replace(/^0+(?=.)/, '')).join(':') + '::/64';
+}
+
+const harvestedTrapSeen = new Map(); // `${ipKey}|${path}` -> ms, per isolate
+let harvestedTrapWindow = { start: 0, n: 0 };
+function harvestedTrapFirst(ip, path, now = Date.now()) {
+  const key = `${trapIpKey(ip)}|${path}`;
+  const t = harvestedTrapSeen.get(key);
+  if (t && now - t < HARVESTED_TRAP_DEDUPE_MS) return false;
+  if (now - harvestedTrapWindow.start >= 60000) harvestedTrapWindow = { start: now, n: 0 };
+  if (harvestedTrapWindow.n >= HARVESTED_TRAP_PER_MIN) return false;
+  harvestedTrapWindow.n++;
+  if (harvestedTrapSeen.size >= HARVESTED_TRAP_SEEN_MAX) harvestedTrapSeen.clear();
+  harvestedTrapSeen.set(key, now);
+  return true;
+}
+
 async function postHarvestedObservation(env, obs) {
   if (!env.DUGGANUSA_API_KEY) return;
   try {
@@ -2118,6 +2216,52 @@ async function postHarvestedObservation(env, obs) {
     if (!r.ok) console.log(JSON.stringify({ shield: 'harvested-observe', post: r.status }));
   } catch (e) {
     console.log(JSON.stringify({ shield: 'harvested-observe', error: String(e && e.message || e).slice(0, 80) }));
+  }
+}
+
+// Built from the request and the noted trap, posted to the SAME ingest route canary hits use
+// (/threat-intel/honeypot: key-checked, protected-IP guard). Fire-and-forget; never touches the response.
+function buildHarvestedTrapDoc(request, cf, trap, status, now = Date.now()) {
+  const ip = trap.ip;
+  const host = (() => { try { return new URL(request.url).hostname; } catch { return ''; } })();
+  const ua = String(request.headers.get('user-agent') || '');
+  return {
+    id: `htrap-${ip.replace(/[^a-zA-Z0-9]/g, '-')}-${now}`,
+    value: ip,
+    type: ip.includes(':') ? 'ipv6' : 'ipv4',
+    source: HARVESTED_TRAP_SOURCE,
+    deployment_host: host,
+    threat_type: 'harvested-trap-probe',
+    malware_family: `harvested-trap:${trap.cve}`,
+    confidence: HARVESTED_TRAP_CONFIDENCE,
+    country: cf.country || '',
+    description: `Edge harvested-path trap: one probe of ${trap.path} (public PoC path for ${trap.cve}, CISA KEV), ` +
+      `answered ${status}. A single probe can be induced; recorded below every blocking and publishing floor. ` +
+      `ASN: AS${cf.asn || '?'} ${String(cf.asOrganization || '?').slice(0, 80)}. UA: ${ua.substring(0, 100)}. Method: ${request.method}.`,
+    timestamp: new Date(now).toISOString(),
+    name: `Harvested trap: ${trap.cve}`,
+    tags: ['edge-shield', 'harvested-trap', trap.cve, 'single-probe', 'unpromoted'],
+    references: [`https://nvd.nist.gov/vuln/detail/${trap.cve}`],
+    honeypot_meta: {
+      harvested_trap: true, cve: trap.cve, path: trap.path, status, method: request.method,
+      ua: ua.substring(0, 200), asn: cf.asn, asn_org: cf.asOrganization, colo: cf.colo,
+      list_generated_at: trap.listGeneratedAt || '',
+      cf_verified_bot_category: cfVerifiedCategory(cf),
+    },
+  };
+}
+
+async function indexHarvestedTrapHit(env, request, cf, trap, status) {
+  if (!env.DUGGANUSA_API_KEY || !trap || !isPlainIp(trap.ip)) return;
+  try {
+    const r = await fetch(`${DUGGANUSA_API}/threat-intel/honeypot`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${env.DUGGANUSA_API_KEY}`, 'Content-Type': 'application/json', 'User-Agent': SHIELD_UA },
+      body: JSON.stringify(buildHarvestedTrapDoc(request, cf, trap, status)),
+    });
+    console.log(JSON.stringify({ shield: 'harvested-trap', cve: trap.cve, path: trap.path, post: r.status }));
+  } catch (e) {
+    console.log(JSON.stringify({ shield: 'harvested-trap', error: String(e && e.message || e).slice(0, 80) }));
   }
 }
 
@@ -2597,11 +2741,17 @@ async function handleFetch(request, env, ctx, obs) {
     // ============================================================
     // Before scanner/IOC enforcement on purpose: a probe that a later layer 418s or 403s still
     // ARRIVED, and arrival time is the whole measurement. See HARVESTED_PATHS above.
-    if (!verifiedCrawler && harvestedObserveEnabled(env, hostname)) {
+    // TRAP (2.36.0): the same match, on the server's trap subset, notes the source IP for the wrapper to
+    // file AFTER the response is known (>= 400 only). Its own switch; see HARVESTED-PATH TRAP.
+    const harvestedObserveOn = harvestedObserveEnabled(env, hostname);
+    const harvestedTrapOn = harvestedTrapEnabled(env, hostname);
+    if (!verifiedCrawler && (harvestedObserveOn || harvestedTrapOn)) {
       const pull = refreshHarvested(env);
       if (pull) ctx.waitUntil(pull);
       const hv = getHarvestedMatch(reqUrl.pathname);
-      if (hv) {
+      const trapCve = hv && harvestedTrapOn ? getHarvestedTrap(hv.path) : null;
+      if (trapCve && isPlainIp(ip)) obs.trap = { ip, cve: trapCve, path: hv.path, listGeneratedAt: harvestedActive.generatedAt };
+      if (hv && harvestedObserveOn) {
         // Noted only. The default-export wrapper reports it once the response is known, and only
         // if the request got no real content (see the INVARIANT there).
         const net = sourceNet(ip);
@@ -2716,6 +2866,7 @@ async function handleFetch(request, env, ctx, obs) {
       // hit is logged with how it arrived, for counting, not for blocking.
       console.log(JSON.stringify({ shield: 'secret-probe', path, via: secretProbeVia(request, ua, verifiedCrawler),
         exploit: !!secretProbe.exploit_path, asn: cf.asn, colo: cf.colo, ua: ua.substring(0, 80) }));
+      obs.secretProbe = true; // never indexed (see above): the harvested trap stands aside too
       return secretProbeResponse();
     }
 
@@ -2884,11 +3035,18 @@ export default {
   // A planted path that is one of our real pages returns real content, so nothing is recorded and
   // no visitor data is kept: list poisoning and ordinary traffic cannot become observations,
   // whatever the harvest contains (security review of c554cd08, after three rounds of cases).
+  //
+  // The harvested TRAP (2.36.0) is stricter than the observation: >= 400 ONLY. A decoy answer (the canary
+  // files its own record) and a secret-file probe (never indexed) file nothing here, and neither does any
+  // response with real content. The response object is returned untouched in every case.
   async fetch(request, env, ctx) {
-    const obs = { pending: null, key: '', edgeDecoy: false };
+    const obs = { pending: null, key: '', edgeDecoy: false, trap: null, secretProbe: false };
     const res = await handleFetch(request, env, ctx, obs);
     if (obs.pending && (res.status >= 400 || obs.edgeDecoy) && harvestedFirstInWindow(obs.key)) {
       ctx.waitUntil(postHarvestedObservation(env, obs.pending));
+    }
+    if (obs.trap && res.status >= 400 && !obs.edgeDecoy && !obs.secretProbe && harvestedTrapFirst(obs.trap.ip, obs.trap.path)) {
+      ctx.waitUntil(indexHarvestedTrapHit(env, request, request.cf || {}, obs.trap, res.status));
     }
     return res;
   },
